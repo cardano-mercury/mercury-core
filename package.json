@@ -1,0 +1,43 @@
+{
+	"name": "@cardano-mercury/core",
+	"version": "0.0.1",
+	"description": "Shared database schema, authentication, and Cardano utilities for the Mercury apps.",
+	"license": "MIT",
+	"type": "module",
+	"files": ["dist"],
+	"exports": {
+		"./db": {
+			"types": "./dist/db/index.d.ts",
+			"default": "./dist/db/index.js"
+		},
+		"./auth": {
+			"types": "./dist/auth/index.d.ts",
+			"default": "./dist/auth/index.js"
+		},
+		"./cardano": {
+			"types": "./dist/cardano/index.d.ts",
+			"default": "./dist/cardano/index.js"
+		},
+		"./money": {
+			"types": "./dist/money.d.ts",
+			"default": "./dist/money.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"dev": "tsc -p tsconfig.json --watch",
+		"check": "tsc -p tsconfig.json --noEmit"
+	},
+	"peerDependencies": {
+		"@meshsdk/core": "*",
+		"better-auth": ">=1.4",
+		"drizzle-orm": ">=0.40"
+	},
+	"devDependencies": {
+		"@meshsdk/core": "^1.9.1",
+		"@types/node": "^22",
+		"better-auth": "~1.4.21",
+		"drizzle-orm": "^0.45.2",
+		"typescript": "^5.6.0"
+	}
+}
