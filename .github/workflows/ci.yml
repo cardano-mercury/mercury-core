@@ -1,0 +1,41 @@
+name: CI
+
+# Gate every PR (and every push to main) on the same checks we run locally: strict type-check,
+# the test suite at 100% coverage, and a clean build of the published artifact.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A newer commit on a branch supersedes in-flight runs for that branch/PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Type-check, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm ci installs exactly what package-lock pins and fails if it's out of sync.
+      - run: npm ci
+
+      # tsc --noEmit over src + tests; also the only lint-equivalent gate in this repo.
+      - run: npm run check
+
+      # Runs the suite and fails under the 100% coverage thresholds in vitest.config.ts.
+      - run: npm run test:coverage
+
+      # The published artifact must compile cleanly from tsconfig.build.json.
+      - run: npm run build
