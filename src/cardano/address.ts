@@ -13,7 +13,7 @@ export function rewardAddressOf(address: string): string | null {
 	const cached = cache.get(address);
 	if (cached !== undefined) return cached;
 
-	let result: string | null = null;
+	let result: string | null;
 	try {
 		result = resolveRewardAddress(address);
 	} catch {
