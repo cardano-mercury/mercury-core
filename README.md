@@ -53,3 +53,20 @@ npm run dev        # tsc --watch
 
 During app development, link it locally with a `file:../mercury-core` dependency (rebuild on
 change), and publish versioned releases for deploys.
+
+## Test
+
+Vitest is the test runner; tests live next to the code they cover as `src/**/*.test.ts`.
+
+```sh
+npm test           # run the suite once
+npm run test:watch # re-run on change
+npm run test:coverage  # enforce 100% line/branch/function coverage
+npm run check      # strict tsc --noEmit; type-checks the source and the tests
+```
+
+Because the apps depend on this shared library, every exported function carries happy-path,
+unhappy-path, and regression tests, and `test:coverage` fails under 100% on the logic-bearing
+modules. The declarative pieces — the drizzle schema and the re-export barrels — are excluded from
+the coverage threshold but still have shape regression tests (`src/db/schema.test.ts`). Test files
+are excluded from the published build via `tsconfig.build.json`, so `dist/` ships no test code.
