@@ -31,12 +31,12 @@ import { env } from '$env/dynamic/private';
 import { db } from './db';
 
 export const auth = createAuth({
-  db,
-  secret: env.BETTER_AUTH_SECRET,
-  baseURL: env.ORIGIN,
-  issuer: 'Mercury Financials',
-  cookieDomain: env.COOKIE_DOMAIN, // e.g. .cardano-mercury.com in production
-  plugins: [sveltekitCookies(getRequestEvent)] // keep last
+	db,
+	secret: env.BETTER_AUTH_SECRET,
+	baseURL: env.ORIGIN,
+	issuer: 'Mercury Financials',
+	cookieDomain: env.COOKIE_DOMAIN, // e.g. .cardano-mercury.com in production
+	plugins: [sveltekitCookies(getRequestEvent)] // keep last
 });
 ```
 
@@ -70,3 +70,21 @@ unhappy-path, and regression tests, and `test:coverage` fails under 100% on the 
 modules. The declarative pieces — the drizzle schema and the re-export barrels — are excluded from
 the coverage threshold but still have shape regression tests (`src/db/schema.test.ts`). Test files
 are excluded from the published build via `tsconfig.build.json`, so `dist/` ships no test code.
+
+## Lint and format
+
+ESLint (correctness/quality rules) and Prettier (formatting) round out the code-quality gate.
+
+```sh
+npm run lint          # eslint, @typescript-eslint recommended rules
+npm run format        # prettier --write; apply formatting
+npm run format:check  # prettier --check; the CI-enforced check
+```
+
+Prettier owns all formatting (`eslint-config-prettier` disables any ESLint rule that would fight it),
+so its config in `.prettierrc.json` matches the SvelteKit convention the apps use: tabs, single
+quotes, no trailing commas, 100-column width.
+
+CI (`.github/workflows/ci.yml`) runs lint, format check, type-check, the coverage-gated tests, and
+the build on every pull request and push to `main`; `main` is branch-protected so a PR can't merge
+until that check passes.

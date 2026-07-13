@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-	BlockfrostClient,
-	BlockfrostError,
-	ADA_HANDLE_POLICY,
-	type Network
-} from './blockfrost';
+import { BlockfrostClient, BlockfrostError, ADA_HANDLE_POLICY, type Network } from './blockfrost';
 
 // A minimal fetch double. Each queued response describes one HTTP reply; the mock shifts through
 // them call by call so a test can script "429, then 200".
@@ -101,10 +96,7 @@ describe('BlockfrostClient.get (via getAddress)', () => {
 	// Happy-ish path: a 429 is retried after backoff and then succeeds.
 	it('retries on 429 and succeeds, backing off exponentially without a retry-after header', async () => {
 		vi.useFakeTimers();
-		const { fetchMock } = queueFetch([
-			{ status: 429, text: 'slow down' },
-			{ json: { ok: true } }
-		]);
+		const { fetchMock } = queueFetch([{ status: 429, text: 'slow down' }, { json: { ok: true } }]);
 		const client = new BlockfrostClient('mainnet', 'proj');
 		const promise = client.getAddress('addr1');
 		// First attempt (0) failed; default backoff is min(500 * 2**0, 10000) = 500ms.
@@ -190,7 +182,11 @@ describe('endpoint methods hit the documented paths', () => {
 			'/txs/h/withdrawals'
 		],
 		['getTransactionUtxos', (c: BlockfrostClient) => c.getTransactionUtxos('h'), '/txs/h/utxos'],
-		['getAssetAddresses', (c: BlockfrostClient) => c.getAssetAddresses('asset1'), '/assets/asset1/addresses'],
+		[
+			'getAssetAddresses',
+			(c: BlockfrostClient) => c.getAssetAddresses('asset1'),
+			'/assets/asset1/addresses'
+		],
 		[
 			'getAddressTransactions',
 			(c: BlockfrostClient) => c.getAddressTransactions('a'),
@@ -230,6 +226,8 @@ describe('resolveHandle', () => {
 	it('throws when no address holds the handle', async () => {
 		queueFetch([{ json: [] }]);
 		const client = new BlockfrostClient('mainnet', 'proj');
-		await expect(client.resolveHandle('$ghost')).rejects.toThrow('No address holds the handle $ghost');
+		await expect(client.resolveHandle('$ghost')).rejects.toThrow(
+			'No address holds the handle $ghost'
+		);
 	});
 });

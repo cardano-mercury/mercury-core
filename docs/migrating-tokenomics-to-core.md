@@ -60,15 +60,15 @@ import { db } from '$lib/server/db';
 import { sendMagicLinkEmail } from '$lib/server/email';
 
 export const auth = createAuth({
-  db,
-  secret: env.BETTER_AUTH_SECRET,
-  baseURL: env.ORIGIN,
-  issuer: 'Mercury Tokenomics',
-  cookieDomain: env.COOKIE_DOMAIN || undefined, // .cardano-mercury.com in production
-  plugins: [
-    magicLink({ sendMagicLink: async ({ email, url }) => sendMagicLinkEmail(email, url) }),
-    sveltekitCookies(getRequestEvent) // keep last
-  ]
+	db,
+	secret: env.BETTER_AUTH_SECRET,
+	baseURL: env.ORIGIN,
+	issuer: 'Mercury Tokenomics',
+	cookieDomain: env.COOKIE_DOMAIN || undefined, // .cardano-mercury.com in production
+	plugins: [
+		magicLink({ sendMagicLink: async ({ email, url }) => sendMagicLinkEmail(email, url) }),
+		sveltekitCookies(getRequestEvent) // keep last
+	]
 });
 ```
 

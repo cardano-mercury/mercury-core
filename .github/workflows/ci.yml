@@ -31,7 +31,12 @@ jobs:
       # npm ci installs exactly what package-lock pins and fails if it's out of sync.
       - run: npm ci
 
-      # tsc --noEmit over src + tests; also the only lint-equivalent gate in this repo.
+      # Lint and format are fast, so run them first to fail fast on style/quality issues.
+      - run: npm run lint
+
+      - run: npm run format:check
+
+      # tsc --noEmit over src + tests.
       - run: npm run check
 
       # Runs the suite and fails under the 100% coverage thresholds in vitest.config.ts.
