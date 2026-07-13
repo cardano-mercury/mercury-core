@@ -15,5 +15,13 @@ export default tseslint.config(
 		// identifiers, so no-undef is redundant and misfires on TS-only syntax.
 		rules: { 'no-undef': 'off' }
 	},
+	{
+		// The bin entry point is plain Node ESM, not TypeScript, so nothing else teaches ESLint that
+		// `process` and `console` exist here.
+		files: ['bin/**/*.js'],
+		languageOptions: {
+			globals: { process: 'readonly', console: 'readonly' }
+		}
+	},
 	prettier
 );

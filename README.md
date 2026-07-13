@@ -14,11 +14,50 @@ It is a framework-agnostic TypeScript package. It does not import any SvelteKit 
   tables to `user`. This package owns the migrations for these tables; apps generate migrations
   only for their own.
 - `@cardano-mercury/core/auth` — `createAuth(options)`, a Better Auth factory with the shared
-  conventions (email/password, two-factor, Postgres adapter, optional cross-subdomain cookies for
-  SSO). Pass framework plugins (e.g. SvelteKit's cookie plugin) via `options.plugins`.
+  conventions (email/password with an 8 character minimum, two-factor, Postgres adapter, and for SSO
+  both cross-subdomain cookies and the matching `trustedOrigins`). Pass framework and app plugins
+  (e.g. SvelteKit's cookie plugin, magic link) via `options.plugins`; the returned instance's
+  `auth.api` picks up those plugins' endpoints with full types, no manual cast needed.
 - `@cardano-mercury/core/cardano` — a Blockfrost REST client (network and project id passed in),
   plus `rewardAddressOf` / `makeOwnershipTest` for stake-key based wallet ownership.
 - `@cardano-mercury/core/money` — `formatAda` for lovelace.
+- `@cardano-mercury/core/db/migrate` — `runCoreMigrations(connectionString)`, the programmatic form
+  of the `mercury-core migrate` command below.
+
+## The shared auth migrations
+
+Core owns the five shared tables, so core also ships the SQL that creates them and a runner that
+applies it. Both apps foreign-key to `user`, so this has to run **before** either app migrates:
+
+```sh
+DATABASE_URL=postgres://... npx @cardano-mercury/core migrate
+```
+
+The SQL is bundled in the published package, so this works from a container that installed core from
+the registry, with no checkout of this repo. It is safe to run repeatedly (an applied migration is a
+no-op) and safe to run from several containers at once: the runner takes a Postgres advisory lock, so
+a `docker compose up` that starts both apps together serialises rather than racing on `CREATE TABLE`.
+Apps that would rather call it in-process can import `runCoreMigrations` from
+`@cardano-mercury/core/db/migrate` instead.
+
+The ownership rule, stated once:
+
+- Core generates and applies migrations for `user`, `session`, `account`, `verification`, and
+  `two_factor`. Its journal is `__drizzle_migrations_core` in `public`.
+- Apps set `tablesFilter` to their own prefix, keep their own journal, and never generate, alter, or
+  drop the five shared tables. They re-export the schema from `@cardano-mercury/core/db` so they can
+  query and foreign-key to it.
+- Nobody runs `drizzle-kit push` against the shared database. It honours `tablesFilter` for tables
+  but not for sequences, and will offer to drop another app's migration-journal sequence.
+
+**Adopting a database that predates this.** If the shared tables already exist because an app created
+them (or from a hand-run stopgap script), core refuses to touch them rather than failing halfway
+through a `CREATE TABLE`. Run it once with `--baseline` to adopt them as they are: core records its
+migrations as applied without altering the tables, and later migrations then apply normally on top.
+
+```sh
+DATABASE_URL=postgres://... npx @cardano-mercury/core migrate --baseline
+```
 
 ## Using it from an app (SvelteKit)
 
@@ -43,6 +82,25 @@ export const auth = createAuth({
 `better-auth`, `drizzle-orm`, and `@meshsdk/core` are peer dependencies, so the app and core share
 one instance of each.
 
+### An app needs the same _copy_ of `better-auth` as core, not just the same version
+
+Install core from the registry, not as a `file:../mercury-core` link. The link is what breaks this,
+and the failure is worth understanding because the error message hides the cause completely.
+
+A `file:` link is a symlink, and TypeScript resolves through it to core's real path — so core's
+`.d.ts` picks up `better-auth` (and its `@better-auth/core` dependency) from **core's own**
+`node_modules`, while the app picks up **its** copy. Two directories, two type identities, even when
+both are byte-identical at the same version. The instance `createAuth` returns then fails to satisfy
+consumers such as `svelteKitHandler`, and TypeScript reports it as an inscrutable structural mismatch
+somewhere deep in a plugin's `hooks.after.matcher`, never as "you have two copies". It is tempting to
+paper over it with a cast in the app's `hooks.server.ts`. Don't. Installing core from the registry
+hoists a single shared copy and the error disappears on its own.
+
+Keep versions aligned too: the peer range is pinned narrow (`~1.6.23`) so a mismatched app fails
+loudly at `npm install` instead of quietly generating a different auth schema against the shared
+database. Moving `better-auth` means moving core and both apps together, in one go. But note that
+matching versions alone is not sufficient — only a single copy makes the types agree.
+
 ## Develop
 
 ```sh
@@ -51,8 +109,14 @@ npm run build      # emit dist/ (ESM + types)
 npm run dev        # tsc --watch
 ```
 
-During app development, link it locally with a `file:../mercury-core` dependency (rebuild on
-change), and publish versioned releases for deploys.
+Apps should depend on a published version (`"@cardano-mercury/core": "^0.2.0"`). A local
+`file:../mercury-core` link is convenient for iterating on core and an app together — run
+`npm run dev` here to rebuild on change — but it gives the app a second physical copy of
+`better-auth`, with the type consequences described above, so treat it as a temporary development
+tool rather than the normal way to consume core.
+
+Releases are cut by tagging: `.github/workflows/release.yml` fires on a `v*` tag, re-runs the full
+gate, checks the tag matches `package.json`, and publishes to npm with provenance.
 
 ## Test
 
