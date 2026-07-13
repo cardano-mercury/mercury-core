@@ -33,7 +33,7 @@ describe('createAuth', () => {
 
 		expect(config.baseURL).toBe('https://app.example');
 		expect(config.secret).toBe('s3cret');
-		expect(config.emailAndPassword).toEqual({ enabled: true });
+		expect(config.emailAndPassword).toEqual({ enabled: true, minPasswordLength: 8 });
 		expect(drizzleAdapter).toHaveBeenCalledWith(db, { provider: 'pg' });
 		expect(config.database).toMatchObject({ __adapter: 'drizzle', opts: { provider: 'pg' } });
 	});
@@ -67,11 +67,74 @@ describe('createAuth', () => {
 		expect(config.advanced).toBeUndefined();
 	});
 
+	// trustedOrigins is the other half of cross-subdomain SSO. Without it, better-auth defaults to
+	// [baseURL] and rejects requests carrying the sibling app's Origin, which reads as a random 403.
+	it('trusts the baseURL and the whole cookie domain when a cookieDomain is given', () => {
+		const config = configFor({
+			db,
+			secret: 's',
+			baseURL: 'https://demo-financials.cardano-mercury.com',
+			cookieDomain: '.cardano-mercury.com'
+		});
+		expect(config.trustedOrigins).toEqual([
+			'https://demo-financials.cardano-mercury.com',
+			'https://*.cardano-mercury.com'
+		]);
+	});
+
+	it('omits trustedOrigins for local single-app use, leaving better-auth its default', () => {
+		const config = configFor({ db, secret: 's', baseURL: 'u' });
+		expect(config.trustedOrigins).toBeUndefined();
+	});
+
+	it('lets an explicit trustedOrigins override the cookieDomain default', () => {
+		const config = configFor({
+			db,
+			secret: 's',
+			baseURL: 'u',
+			cookieDomain: '.cardano-mercury.com',
+			trustedOrigins: ['https://only-this.example']
+		});
+		expect(config.trustedOrigins).toEqual(['https://only-this.example']);
+	});
+
+	// Unhappy path: a cookieDomain with no baseURL still yields a usable wildcard rather than
+	// [undefined, wildcard].
+	it('falls back to just the wildcard when cookieDomain is set but baseURL is not', () => {
+		const config = configFor({
+			db,
+			secret: undefined,
+			baseURL: undefined,
+			cookieDomain: '.cardano-mercury.com'
+		});
+		expect(config.trustedOrigins).toEqual(['https://*.cardano-mercury.com']);
+	});
+
+	// Password policy lives in core so the apps cannot drift apart on it.
+	it('defaults email/password to enabled with an 8 character minimum', () => {
+		const config = configFor({ db, secret: 's', baseURL: 'u' });
+		expect(config.emailAndPassword).toEqual({ enabled: true, minPasswordLength: 8 });
+	});
+
+	it('merges an app-supplied emailAndPassword over the shared defaults', () => {
+		const config = configFor({
+			db,
+			secret: 's',
+			baseURL: 'u',
+			emailAndPassword: { enabled: true, minPasswordLength: 12, requireEmailVerification: true }
+		});
+		expect(config.emailAndPassword).toEqual({
+			enabled: true,
+			minPasswordLength: 12,
+			requireEmailVerification: true
+		});
+	});
+
 	// Regression: the SvelteKit cookie plugin must stay last, so twoFactor is prepended and the app's
 	// plugins keep their given order after it.
 	it('appends app plugins after twoFactor, preserving their order', () => {
-		const magicLink = { __plugin: 'magicLink' };
-		const sveltekitCookies = { __plugin: 'sveltekitCookies' };
+		const magicLink = { id: 'magicLink', __plugin: 'magicLink' };
+		const sveltekitCookies = { id: 'sveltekitCookies', __plugin: 'sveltekitCookies' };
 		const config = configFor({
 			db,
 			secret: 's',
@@ -99,3 +162,15 @@ describe('createAuth', () => {
 		expect(config.baseURL).toBeUndefined();
 	});
 });
+
+// Compile-time only: never called (calling it would hit the mocked betterAuth above, which doesn't
+// return a real Auth instance). Its only job is to fail `npm run check` if createAuth's plugins
+// generic regresses to BetterAuthPlugin[], which erases app-plugin endpoints from auth.api and
+// forces callers back to a hand-rolled cast (see tokenomics' auth.ts `PluginEndpoints`).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function assertPluginEndpointsAreInferred(
+	plugin: ReturnType<typeof import('better-auth/plugins').magicLink>
+) {
+	const auth = createAuth({ db, secret: 's', baseURL: 'u', plugins: [plugin] });
+	return { enableTwoFactor: auth.api.enableTwoFactor, signInMagicLink: auth.api.signInMagicLink };
+}

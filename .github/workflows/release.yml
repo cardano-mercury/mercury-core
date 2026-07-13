@@ -1,0 +1,51 @@
+name: Release
+
+# Publish to npm when a v* tag is pushed. Core is a published package rather than a `file:` link for
+# two reasons: an app's Docker build cannot reach a sibling directory, and a `file:` link gives the
+# app a *second* physical copy of better-auth (core's own node_modules), which TypeScript treats as
+# a distinct type identity from the app's copy even at the same version. Installing core from the
+# registry hoists one shared copy and both problems go away.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # Same gate as CI: never publish something that would not have passed a PR.
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run check
+      - run: npm run test:coverage
+      - run: npm run build
+
+      # Fail loudly if the tag and package.json disagree, rather than publishing the wrong version.
+      - name: Check tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      # `files` ships dist/, drizzle/ (the shared auth migrations) and bin/ (the migrate runner).
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
