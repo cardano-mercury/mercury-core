@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { rewardAddressOf, makeOwnershipTest } from './address';
+import { rewardAddressOf, makeOwnershipTest } from './address.js';
 
 // resolveRewardAddress is the one piece of @meshsdk/core these helpers lean on; mock it so the
 // tests are deterministic and don't pull in the full Cardano serialisation stack.

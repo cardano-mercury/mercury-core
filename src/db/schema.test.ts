@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getTableConfig } from 'drizzle-orm/pg-core';
-import { user, session, account, verification, twoFactor } from './schema';
+import { user, session, account, verification, twoFactor } from './schema.js';
 
 // These tables are the contract every Mercury app foreign-keys to, and core owns their migrations,
 // so these are regression tests: they lock the column names, nullability, keys, and indexes so an

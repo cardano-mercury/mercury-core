@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BlockfrostClient, BlockfrostError, ADA_HANDLE_POLICY, type Network } from './blockfrost';
+import {
+	BlockfrostClient,
+	BlockfrostError,
+	ADA_HANDLE_POLICY,
+	type Network
+} from './blockfrost.js';
 
 // A minimal fetch double. Each queued response describes one HTTP reply; the mock shifts through
 // them call by call so a test can script "429, then 200".
