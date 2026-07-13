@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createAuth } from './index';
+import { createAuth } from './index.js';
 
 // Mock the three better-auth entry points so the test asserts the *configuration* createAuth
 // assembles, without standing up a real auth instance. betterAuth echoes its config back, and the

@@ -1,6 +1,6 @@
 {
 	"name": "@cardano-mercury/core",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Shared database schema, authentication, and Cardano utilities for the Mercury apps.",
 	"license": "MIT",
 	"type": "module",
@@ -48,6 +48,7 @@
 	"scripts": {
 		"prepublishOnly": "npm run build",
 		"build": "tsc -p tsconfig.build.json",
+		"smoke": "bash scripts/smoke-pack.sh",
 		"dev": "tsc -p tsconfig.build.json --watch",
 		"check": "tsc -p tsconfig.json --noEmit",
 		"test": "vitest run",

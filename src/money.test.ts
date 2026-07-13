@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAda, LOVELACE_PER_ADA } from './money';
+import { formatAda, LOVELACE_PER_ADA } from './money.js';
 
 describe('LOVELACE_PER_ADA', () => {
 	it('is one million lovelace', () => {

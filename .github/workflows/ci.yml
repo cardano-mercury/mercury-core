@@ -44,3 +44,9 @@ jobs:
 
       # The published artifact must compile cleanly from tsconfig.build.json.
       - run: npm run build
+
+      # Compiling is not the same as loading. 0.2.0 built fine and was unimportable from the
+      # registry: tsc emitted extensionless relative imports that only a bundler could resolve, and
+      # both apps consumed core as a `file:` link, so Vite hid it. This packs the tarball and imports
+      # every entry point through plain node, which is the resolver a production container uses.
+      - run: npm run smoke

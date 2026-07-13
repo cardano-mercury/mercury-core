@@ -1,2 +1,2 @@
-export * from './blockfrost';
-export * from './address';
+export * from './blockfrost.js';
+export * from './address.js';

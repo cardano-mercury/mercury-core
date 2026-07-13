@@ -35,6 +35,10 @@ jobs:
       - run: npm run test:coverage
       - run: npm run build
 
+      # Load every entry point from the packed tarball through plain node, with no bundler. This is
+      # the check whose absence let 0.2.0 publish in an unimportable state.
+      - run: npm run smoke
+
       # Fail loudly if the tag and package.json disagree, rather than publishing the wrong version.
       - name: Check tag matches package.json version
         run: |

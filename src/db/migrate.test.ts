@@ -5,7 +5,7 @@ import {
 	MIGRATIONS_TABLE,
 	MIGRATIONS_SCHEMA,
 	ADVISORY_LOCK_KEY
-} from './migrate';
+} from './migrate.js';
 
 // Mock the driver and the drizzle migrator so these tests assert the *orchestration* (lock, adopt,
 // migrate, unlock, disconnect) without a live Postgres. The end-to-end behaviour against a real
