@@ -1,0 +1,38 @@
+# Build the app images from source instead of pulling them.
+#
+#   docker compose -f compose.yaml -f compose.build.yaml --env-file .env build
+#   docker compose -f compose.yaml -f compose.build.yaml --env-file .env push
+#
+# Layer this on when you are iterating locally, or until the apps publish to GHCR. The `build:`
+# blocks here pair with the `image:` names in compose.yaml, so a build tags the result with exactly
+# the name the pull path expects — the rest of the stack cannot tell the difference, and `push` sends
+# it to the registry.
+#
+# Do not use this on the demo host. Building two SvelteKit apps wants several GB of RAM and pulls a
+# full dev toolchain onto the box; running them wants a couple of hundred MB. Pulling prebuilt images
+# is the whole reason the host can be small.
+
+services:
+  financials-migrate:
+    build:
+      context: ${FINANCIALS_CONTEXT:-../../mercury-financials}
+      dockerfile: Dockerfile
+      target: migrate
+
+  financials:
+    build:
+      context: ${FINANCIALS_CONTEXT:-../../mercury-financials}
+      dockerfile: Dockerfile
+      target: runner
+
+  tokenomics-migrate:
+    build:
+      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
+      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
+      target: migrate
+
+  tokenomics:
+    build:
+      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
+      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
+      target: runner

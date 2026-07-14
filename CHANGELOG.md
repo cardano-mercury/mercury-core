@@ -1,5 +1,24 @@
 # @cardano-mercury/core
 
+## 0.2.2
+
+### Patch Changes
+
+- 73a32a6: Corrected the license metadata. `package.json` declared MIT while the repository has always shipped
+  Apache-2.0, so the published package advertised the wrong license. It is now `Apache-2.0`, matching
+  the LICENSE file and the other Mercury repositories, and the LICENSE's copyright placeholder is filled
+  in for Cardano Mercury, Inc. Also adds `engines` (Node 22 or newer), `author`, keywords, and
+  `sideEffects: false` so bundlers can tree-shake the barrels.
+- 8fd62f8: `makeOwnershipTest` now documents that it answers membership ("is this address ours?"), not
+  attribution ("which bucket or account is it?"). One stake key routinely spans several payment
+  addresses, so labelling an undeclared sibling by its stake key merges things that were deliberately
+  kept apart, while the totals still balance and nothing catches it. Behaviour is unchanged; the
+  predicate was never wrong, only under-described.
+- 53ee118: Documented the two ways a shared database bites, in the README where the shared-migration conventions
+  are stated: `drizzle-kit push` applies `tablesFilter` to tables but not to sequences, so it offers to
+  drop another app's migration journal; and Postgres silently truncates identifiers at 63 characters, so
+  a drizzle-derived foreign key name over that length drifts permanently and invisibly.
+
 ## 0.2.1
 
 ### Patch Changes

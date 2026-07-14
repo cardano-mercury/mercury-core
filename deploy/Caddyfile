@@ -1,0 +1,43 @@
+# Production. Caddy terminates TLS and issues certificates over ACME, which needs ports 80 and 443
+# reachable from the internet and DNS already pointing here.
+#
+# The hostnames come from the environment, so a custom domain is a change to `.env` and nothing else:
+#
+#   FINANCIALS_HOST=demo-financials.example.com
+#   TOKENOMICS_HOST=demo-tokenomics.example.com
+#   COOKIE_DOMAIN=.example.com
+#
+# Both apps must be siblings under ONE parent domain. The session cookie is scoped to that parent
+# (COOKIE_DOMAIN), and that is the entire mechanism behind one login working on both. Put them on
+# different registrable domains and SSO stops, silently.
+#
+# For a dry run with no DNS and no public host, use Caddyfile.local instead (see README).
+
+{
+	# Receives the Let's Encrypt expiry warnings. Use a real address you read.
+	email {$ACME_EMAIL}
+}
+
+{$FINANCIALS_HOST} {
+	encode gzip
+
+	# Caddy sets X-Forwarded-Proto and X-Forwarded-Host by default, and the app images set
+	# PROTOCOL_HEADER / HOST_HEADER to read exactly those. Without that pairing adapter-node builds
+	# absolute URLs as http://financials:3000 and Better Auth rejects its own callbacks as
+	# cross-origin. It is the most common way this setup breaks.
+	reverse_proxy financials:3000 {
+		health_uri /healthz
+		health_interval 5s
+		health_timeout 2s
+	}
+}
+
+{$TOKENOMICS_HOST} {
+	encode gzip
+
+	reverse_proxy tokenomics:3000 {
+		health_uri /healthz
+		health_interval 5s
+		health_timeout 2s
+	}
+}

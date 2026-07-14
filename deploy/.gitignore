@@ -1,0 +1,3 @@
+# Real secrets. The .example files are the templates; these are what you fill in.
+.env
+.env.local

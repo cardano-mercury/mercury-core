@@ -10,6 +10,10 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    # Dependabot targets the repository's default branch unless told otherwise, which is `main`. Under
+    # the two-branch model main is release-only, so a dependency bump has to land on development like
+    # any other change and reach main through a release.
+    target-branch: development
     schedule:
       interval: weekly
       day: monday
@@ -64,6 +68,7 @@ updates:
   # repo's token. Same cooldown, same weekly cadence.
   - package-ecosystem: github-actions
     directory: /
+    target-branch: development
     schedule:
       interval: weekly
       day: monday

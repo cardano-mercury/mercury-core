@@ -90,4 +90,20 @@ describe('makeOwnershipTest', () => {
 		const isOurs = makeOwnershipTest('addr_tracked', null);
 		expect(isOurs(other)).toBe(false);
 	});
+
+	// The predicate answers membership, not attribution, and this is the case that proves it: several
+	// payment addresses behind one stake key all come back "ours", which is correct and is exactly why
+	// a caller cannot use this to decide *which* bucket or account an address belongs to. A treasury
+	// routinely runs one stake key with a payment address per bucket; labelling an undeclared sibling
+	// by its stake key would merge them, and the totals would still balance, so nothing would notice.
+	it('claims every sibling of a shared stake key, so it cannot tell them apart', () => {
+		const foundersSibling = freshAddress();
+		const publicSibling = freshAddress();
+		resolveRewardAddress.mockReturnValue('stake1_shared');
+
+		const isOurs = makeOwnershipTest('addr_declared', 'stake1_shared');
+
+		expect(isOurs(foundersSibling)).toBe(true);
+		expect(isOurs(publicSibling)).toBe(true);
+	});
 });
