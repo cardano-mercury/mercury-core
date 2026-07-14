@@ -16,10 +16,23 @@ npm test
 Node 22 or newer. No database is needed for the test suite; the migration runner is unit-tested
 against a fake client, and the end-to-end migration behaviour is exercised in `deploy/`.
 
+## Which branch
+
+**Open your pull request against `development`, not `main`.**
+
+`development` is where work accumulates. `main` is what has been released, and nothing lands on it
+except a release: when CI is green on `development`, the `Release PR` workflow collapses everything
+waiting there into one version bump and one changelog section and offers it as an ordinary pull
+request into `main`. Merging that is the release; tagging it publishes.
+
+That is the whole reason the changesets below exist. Several pull requests open against `development`
+at once, each editing `CHANGELOG.md` directly, would conflict on the same lines every time. A
+changeset is a separate file, so they cannot.
+
 ## The gate
 
-Run this before you open a pull request. CI runs exactly the same set, and `main` will not accept a
-PR that fails it.
+Run this before you open a pull request. CI runs exactly the same set, and neither branch will accept
+a PR that fails it.
 
 ```sh
 npm run lint          # eslint
@@ -78,19 +91,23 @@ database. Dependabot is deliberately configured not to open PRs for it. The READ
 
 Maintainers only.
 
-1. Merge the **"Release: version packages"** pull request that the `Version` workflow keeps up to
-   date. That is what bumps the version and writes the changelog, from the accumulated changesets.
-2. Tag it:
+1. Merge the **"Release vX.Y.Z"** pull request that the `Release PR` workflow keeps open against
+   `main`. It is rebuilt from `development` on every green CI run, so it always reflects what is
+   actually waiting. It carries the version bump and the assembled changelog, and it runs the same CI
+   as any other pull request — nothing pushes to `main`, and no bot bypasses branch protection.
+2. Tag it. **This is what publishes.**
 
    ```sh
+   git checkout main && git pull
    git tag "v$(node -p "require('./package.json').version")"
    git push --tags
    ```
 
 The tag fires `release.yml`, which re-runs the full gate, refuses to publish if the tag and
-`package.json` disagree, and publishes to npm with provenance. Merging the version PR does not
-publish on its own — that separation is deliberate, so a release is a decision rather than a side
-effect, and the tag always points at exactly what went out.
+`package.json` disagree, and publishes to npm with provenance.
+
+Merging the release PR does not publish on its own. That separation is deliberate: a release is a
+decision rather than a side effect, and the tag always points at exactly what went out.
 
 ## House style
 
