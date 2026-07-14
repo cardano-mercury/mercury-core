@@ -33,15 +33,29 @@ jobs:
       # The steps are skipped rather than the whole job, deliberately. A skipped job reports no status
       # at all, and a required check that never reports blocks the pull request forever, which is the
       # same deadlock by a different route. Running the job and having it do nothing reports success.
-      - name: The release PR is exempt
+      - name: Is this pull request exempt?
         id: release_pr
         run: |
+          # The release PR consumes every changeset, bumps the version and writes CHANGELOG.md, which
+          # is exactly what the rules below forbid. Without this it fails on all three counts and no
+          # release can ever merge.
           if [[ "${{ github.head_ref }}" == release/v* ]]; then
-            echo "This is the release PR. It is meant to consume the changesets and write the changelog."
+            echo "The release PR is meant to consume the changesets and write the changelog."
             echo "exempt=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exempt=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Dependabot cannot write a changeset, so requiring one would simply wedge every dependency
+          # update. Core's runtime dependencies are near-nil and its peer ranges are excluded from
+          # Dependabot entirely (they must move in lockstep across three repos), so a bot bump ships
+          # nothing to a consumer. If one ever does, add a changeset to the bot's branch by hand.
+          if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
+            echo "Dependabot cannot add a changeset."
+            echo "exempt=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "exempt=false" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         if: steps.release_pr.outputs.exempt == 'false'
@@ -61,8 +75,17 @@ jobs:
       - name: A changeset must be present
         if: steps.release_pr.outputs.exempt == 'false'
         run: |
-          # Anything in .changeset/ that is not the config or the README is a changeset.
-          count=$(find .changeset -name '*.md' ! -name 'README.md' | wc -l)
+          set -euo pipefail
+          git fetch --quiet origin "${{ github.base_ref }}"
+
+          # Count the changesets this pull request ADDS, not the ones sitting in the tree. Counting the
+          # tree is vacuous: changesets accumulate on the base branch between releases, so as soon as
+          # one is pending, every pull request passes without adding anything. That is exactly what
+          # happened, and three dependency PRs sailed through with no changeset before it was caught.
+          count=$(git diff --name-only --diff-filter=A "origin/${{ github.base_ref }}"...HEAD \
+            -- .changeset \
+            | grep -E '\.md$' | grep -v 'README.md' | wc -l)
+
           if [ "$count" -eq 0 ]; then
             echo "::error::No changeset found. Run 'npx changeset' and commit the file it writes."
             echo ""
@@ -75,7 +98,7 @@ jobs:
             echo "  npx changeset --empty"
             exit 1
           fi
-          echo "found $count changeset(s)"
+          echo "this pull request adds $count changeset(s)"
 
       # The version and the changelog are outputs of the release process, not inputs to a PR. Editing
       # them by hand is what the changeset indirection exists to prevent, and it quietly fights the
