@@ -25,7 +25,19 @@ export function rewardAddressOf(address: string): string | null {
 
 /**
  * Build an ownership predicate for a wallet: an address is ours if it is the exact tracked address
- * or shares the wallet's stake key.
+ * or shares the wallet's stake key. Use it to answer **membership** — "is this address ours?" — which
+ * is what internal-versus-external classification needs.
+ *
+ * It does **not** answer **attribution**: "which bucket, account or wallet does this address belong
+ * to?" Those are different questions and a stake key does not settle the second one. A treasury
+ * commonly runs one stake key across several payment addresses, one per bucket or per account, so
+ * matching an undeclared sibling address to a label by its stake key can merge things that were
+ * deliberately kept apart — and the total still balances, so a test of the total will not catch it.
+ *
+ * Attribution belongs to the caller, which knows what it declared. The rule tokenomics settled on,
+ * and the one to copy: an undeclared sibling resolves to a label only when that stake key has exactly
+ * one label behind it, and is left unassigned otherwise. Unassigned is the honest answer when the
+ * declarations say the key spans several; guessing is not.
  */
 export function makeOwnershipTest(bech32: string, stakeKey: string | null) {
 	return (address: string): boolean =>

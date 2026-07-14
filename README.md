@@ -19,7 +19,10 @@ It is a framework-agnostic TypeScript package. It does not import any SvelteKit 
   (e.g. SvelteKit's cookie plugin, magic link) via `options.plugins`; the returned instance's
   `auth.api` picks up those plugins' endpoints with full types, no manual cast needed.
 - `@cardano-mercury/core/cardano` — a Blockfrost REST client (network and project id passed in),
-  plus `rewardAddressOf` / `makeOwnershipTest` for stake-key based wallet ownership.
+  plus `rewardAddressOf` / `makeOwnershipTest` for stake-key based wallet ownership. `makeOwnershipTest`
+  answers **membership** ("is this address ours?"), not **attribution** ("whose bucket or account is
+  it?") — one stake key routinely spans several payment addresses, so see its JSDoc before using it to
+  label anything.
 - `@cardano-mercury/core/money` — `formatAda` for lovelace.
 - `@cardano-mercury/core/db/migrate` — `runCoreMigrations(connectionString)`, the programmatic form
   of the `mercury-core migrate` command below.
@@ -58,6 +61,47 @@ migrations as applied without altering the tables, and later migrations then app
 ```sh
 DATABASE_URL=postgres://... npx @cardano-mercury/core migrate --baseline
 ```
+
+### Two ways a shared database bites, both silent
+
+Three writers on one Postgres is core's design, so these belong here rather than in an app. Both were
+found the hard way, in production data.
+
+**`drizzle-kit push` will eat another app's migration history.** It applies `tablesFilter` to tables
+but **not to sequences**, so from an app with `tablesFilter: ['financials_*']` correctly set, `push`
+still proposes `DROP SEQUENCE "public"."__drizzle_migrations_tokenomics_id_seq"` — another app's
+journal. One invocation is enough. Do not add a `db:push` script; core does not have one, and neither
+should an app. Generate and migrate only, so you are applying committed SQL and never diffing against
+tables you do not own.
+
+**Postgres truncates identifiers at 63 characters, and drizzle's derived names can exceed that.**
+Drizzle names a foreign key `{table}_{column}_{reftable}_{refcolumn}_fk`. Add a table prefix and it
+overflows:
+
+```
+financials_transaction_tag_transaction_id_financials_transaction_id_fk   (70 chars)
+```
+
+Postgres silently truncates that to 63 on creation. Drizzle then compares the 70-character name it
+expects against the 63 in the database, concludes the constraint is missing, and offers to create it —
+on every diff, forever. On a unique constraint it offers to **truncate the table** to add it. Nothing
+warns you: Postgres emits a `NOTICE` and drizzle says nothing.
+
+Name long constraints explicitly with `foreignKey({ ..., name })` and keep them under 63. Audit any
+shared database with:
+
+```sql
+select conrelid::regclass, conname, length(conname)
+from pg_constraint
+where connamespace = 'public'::regnamespace and length(conname) >= 63
+order by length(conname) desc;
+```
+
+Anything at exactly 63 is almost certainly a truncated name that will never match again.
+
+Core's own tables are unprefixed, which is what keeps it clear: its longest derived identifier is
+`two_factor_user_id_user_id_fk` at 29 characters, 34 short of the cliff. The apps, with their
+`financials_` and `tokenomics_` prefixes, have far less room.
 
 ## Using it from an app (SvelteKit)
 
