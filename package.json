@@ -88,7 +88,7 @@
 		"@eslint/js": "^10.0.1",
 		"@meshsdk/core": "^1.9.1",
 		"@types/node": "^26",
-		"@vitest/coverage-v8": "^4.1.9",
+		"@vitest/coverage-v8": "^4.1.10",
 		"better-auth": "~1.6.23",
 		"drizzle-kit": "^0.31.10",
 		"drizzle-orm": "^0.45.2",
@@ -97,6 +97,6 @@
 		"prettier": "^3.9.4",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.62.1",
-		"vitest": "^4.1.9"
+		"vitest": "^4.1.10"
 	}
 }
