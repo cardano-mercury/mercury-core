@@ -70,10 +70,9 @@ updates:
       time: '06:00'
       timezone: Etc/UTC
     open-pull-requests-limit: 3
+    # The github-actions ecosystem only supports `default-days`; the semver-specific keys are rejected
+    # at parse time, because action releases are tags rather than semver in Dependabot's model.
     cooldown:
-      semver-major-days: 14
-      semver-minor-days: 7
-      semver-patch-days: 3
       default-days: 7
     groups:
       actions:
