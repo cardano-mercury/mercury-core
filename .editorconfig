@@ -9,9 +9,11 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-# Prettier: "useTabs": true, "printWidth": 100
+# Prettier reads this file, so these values must match .prettierrc.json or they silently override it.
+# indent_size maps to Prettier's tabWidth: setting it to 4 here reformats the whole repo.
+# Prettier: "useTabs": true, "tabWidth": 2, "printWidth": 100
 indent_style = tab
-indent_size = 4
+indent_size = 2
 max_line_length = 100
 
 # Prettier hard-wraps nothing in markdown by default, and trailing whitespace is a line break in it.

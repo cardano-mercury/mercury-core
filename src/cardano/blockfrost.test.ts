@@ -70,9 +70,7 @@ describe('BlockfrostClient constructor', () => {
 
 	// Unhappy path: an empty project id would 403 on every call, so reject it up front.
 	it('rejects a missing project id', () => {
-		expect(() => new BlockfrostClient('mainnet', '')).toThrow(
-			'Blockfrost project id is required'
-		);
+		expect(() => new BlockfrostClient('mainnet', '')).toThrow('Blockfrost project id is required');
 	});
 });
 
@@ -103,10 +101,7 @@ describe('BlockfrostClient.get (via getAddress)', () => {
 	// Happy-ish path: a 429 is retried after backoff and then succeeds.
 	it('retries on 429 and succeeds, backing off exponentially without a retry-after header', async () => {
 		vi.useFakeTimers();
-		const { fetchMock } = queueFetch([
-			{ status: 429, text: 'slow down' },
-			{ json: { ok: true } }
-		]);
+		const { fetchMock } = queueFetch([{ status: 429, text: 'slow down' }, { json: { ok: true } }]);
 		const client = new BlockfrostClient('mainnet', 'proj');
 		const promise = client.getAddress('addr1');
 		// First attempt (0) failed; default backoff is min(500 * 2**0, 10000) = 500ms.
@@ -191,11 +186,7 @@ describe('endpoint methods hit the documented paths', () => {
 			(c: BlockfrostClient) => c.getTransactionWithdrawals('h'),
 			'/txs/h/withdrawals'
 		],
-		[
-			'getTransactionUtxos',
-			(c: BlockfrostClient) => c.getTransactionUtxos('h'),
-			'/txs/h/utxos'
-		],
+		['getTransactionUtxos', (c: BlockfrostClient) => c.getTransactionUtxos('h'), '/txs/h/utxos'],
 		[
 			'getAssetAddresses',
 			(c: BlockfrostClient) => c.getAssetAddresses('asset1'),

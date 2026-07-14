@@ -97,11 +97,11 @@ Maintainers only.
    as any other pull request — nothing pushes to `main`, and no bot bypasses branch protection.
 2. Tag it. **This is what publishes.**
 
-    ```sh
-    git checkout main && git pull
-    git tag "v$(node -p "require('./package.json').version")"
-    git push --tags
-    ```
+   ```sh
+   git checkout main && git pull
+   git tag "v$(node -p "require('./package.json').version")"
+   git push --tags
+   ```
 
 The tag fires `release.yml`, which re-runs the full gate, refuses to publish if the tag and
 `package.json` disagree, and publishes to npm with provenance.

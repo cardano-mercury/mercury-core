@@ -41,10 +41,7 @@ describe('createAuth', () => {
 	it('enables two-factor with the default Mercury issuer', () => {
 		const config = configFor({ db, secret: 's', baseURL: 'u' });
 		expect(twoFactor).toHaveBeenCalledWith({ issuer: 'Mercury' });
-		expect(config.plugins[0]).toMatchObject({
-			__plugin: 'twoFactor',
-			opts: { issuer: 'Mercury' }
-		});
+		expect(config.plugins[0]).toMatchObject({ __plugin: 'twoFactor', opts: { issuer: 'Mercury' } });
 	});
 
 	it('uses a custom 2FA issuer when given', () => {
@@ -124,11 +121,7 @@ describe('createAuth', () => {
 			db,
 			secret: 's',
 			baseURL: 'u',
-			emailAndPassword: {
-				enabled: true,
-				minPasswordLength: 12,
-				requireEmailVerification: true
-			}
+			emailAndPassword: { enabled: true, minPasswordLength: 12, requireEmailVerification: true }
 		});
 		expect(config.emailAndPassword).toEqual({
 			enabled: true,

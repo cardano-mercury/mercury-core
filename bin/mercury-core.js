@@ -15,9 +15,7 @@ const [command, ...rest] = process.argv.slice(2);
 if (command !== 'migrate') {
 	console.error('usage: mercury-core migrate [--baseline]\n');
 	console.error("  migrate      apply core's shared auth migrations to $DATABASE_URL");
-	console.error(
-		"  --baseline   adopt shared tables that already exist but predate core's journal"
-	);
+	console.error("  --baseline   adopt shared tables that already exist but predate core's journal");
 	process.exit(1);
 }
 
