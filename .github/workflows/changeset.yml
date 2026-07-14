@@ -15,7 +15,7 @@ name: Changeset
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
 
 permissions:
   contents: read
@@ -25,9 +25,10 @@ jobs:
     name: Changeset present
     runs-on: ubuntu-latest
     steps:
-      # The release PR is the one thing that is *supposed* to do all of this: it consumes every
-      # changeset, bumps the version and writes CHANGELOG.md. Checking it against the rules below
-      # would fail it on all three counts and deadlock every release.
+      # The release PR is the one thing that is *supposed* to do all of this: `release-pr.yml` builds
+      # it by running `changeset version`, which consumes every changeset, bumps the version and writes
+      # CHANGELOG.md. Checking it against the rules below would fail it on all three counts, and no
+      # release could ever merge.
       #
       # The steps are skipped rather than the whole job, deliberately. A skipped job reports no status
       # at all, and a required check that never reports blocks the pull request forever, which is the
@@ -35,7 +36,7 @@ jobs:
       - name: The release PR is exempt
         id: release_pr
         run: |
-          if [[ "${{ github.head_ref }}" == changeset-release/* ]]; then
+          if [[ "${{ github.head_ref }}" == release/v* ]]; then
             echo "This is the release PR. It is meant to consume the changesets and write the changelog."
             echo "exempt=true" >> "$GITHUB_OUTPUT"
           else

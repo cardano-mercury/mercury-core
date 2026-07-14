@@ -9,9 +9,9 @@ name: CodeQL
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
   push:
-    branches: [main]
+    branches: [main, development]
   schedule:
     # Mondays, after the Dependabot run, so a bad week arrives all at once rather than in dribs.
     - cron: '30 6 * * 1'

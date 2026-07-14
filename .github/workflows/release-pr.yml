@@ -1,0 +1,110 @@
+name: Release PR
+
+# Keeps a "Release vX.Y.Z" pull request open against main, holding everything on development that has
+# not shipped yet.
+#
+# This is the two-branch model, and it is what makes the changeset accumulator worth having. Pull
+# requests target `development`, and each one drops a randomly-named file into `.changeset/`, so two
+# open pull requests never touch the same file and never conflict. They pile up on development. This
+# workflow then collapses the whole pile, once, into a single version bump and a single CHANGELOG
+# section, and offers it as an ordinary pull request into main.
+#
+# Nothing pushes to main. The release arrives as a PR that runs the same CI as any other, so main
+# stays strictly gated and no bot needs permission to bypass branch protection. Merging it is the act
+# that makes the release; the tag is what publishes (see release.yml).
+#
+# It runs only after CI is green on development, so a release can only ever be assembled from a
+# commit that passed.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [development]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+jobs:
+  open:
+    name: Open or update the release PR
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: development
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Anything to release?
+        id: pending
+        run: |
+          set -euo pipefail
+          count=$(find .changeset -name '*.md' ! -name 'README.md' | wc -l)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ]; then
+            echo "::notice::No changesets on development. Nothing to release."
+          fi
+
+      # `changeset version` is the assemble step: it reads every changeset, picks the highest bump,
+      # writes package.json and the CHANGELOG section, and deletes the changesets it consumed.
+      #
+      # The branch is rebuilt from development every time rather than accumulated, so it always
+      # reflects development as it is now and never carries a stale bump from a previous run.
+      - name: Assemble the release
+        if: steps.pending.outputs.count != '0'
+        id: assemble
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          npx changeset version
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          git checkout -B "release/v$version"
+          git add -A
+          git commit -m "Release v$version"
+          git push --force origin "release/v$version"
+
+      - name: Open or update the pull request
+        if: steps.pending.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.assemble.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # The section this release just wrote, so the PR body says what is actually in it.
+          notes=$(awk -v v="$VERSION" '
+            $0 ~ "^## " v "$" { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md)
+
+          body=$(printf 'Assembled from the changesets on `development`.\n\nMerging this lands the version bump and the changelog on `main`. It does **not** publish: tag it to do that.\n\n```sh\ngit checkout main && git pull\ngit tag "v%s" && git push --tags\n```\n\nThe tag fires `release.yml`, which re-runs the full gate, refuses to publish if the tag and package.json disagree, and publishes to npm with provenance.\n\n---\n%s\n' "$VERSION" "$notes")
+
+          existing=$(gh pr list --base main --head "release/v$VERSION" --json number -q '.[0].number' || true)
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "Release v$VERSION" --body "$body"
+            echo "updated PR #$existing"
+          else
+            gh pr create --base main --head "release/v$VERSION" \
+              --title "Release v$VERSION" --body "$body"
+          fi
