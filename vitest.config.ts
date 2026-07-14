@@ -12,7 +12,12 @@ export default defineConfig({
 			// callbacks, never invoked here), and db/cardano index files are pure re-export barrels;
 			// neither holds branching logic, so they're regression-tested for shape but kept out of the
 			// coverage denominator. auth/index.ts is real logic and stays in.
-			exclude: ['src/db/index.ts', 'src/cardano/index.ts', 'src/db/schema.ts', 'src/**/*.test.ts'],
+			exclude: [
+				'src/db/index.ts',
+				'src/cardano/index.ts',
+				'src/db/schema.ts',
+				'src/**/*.test.ts'
+			],
 			thresholds: {
 				lines: 100,
 				functions: 100,
