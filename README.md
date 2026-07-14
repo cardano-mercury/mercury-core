@@ -19,7 +19,10 @@ It is a framework-agnostic TypeScript package. It does not import any SvelteKit 
   (e.g. SvelteKit's cookie plugin, magic link) via `options.plugins`; the returned instance's
   `auth.api` picks up those plugins' endpoints with full types, no manual cast needed.
 - `@cardano-mercury/core/cardano` — a Blockfrost REST client (network and project id passed in),
-  plus `rewardAddressOf` / `makeOwnershipTest` for stake-key based wallet ownership.
+  plus `rewardAddressOf` / `makeOwnershipTest` for stake-key based wallet ownership. `makeOwnershipTest`
+  answers **membership** ("is this address ours?"), not **attribution** ("whose bucket or account is
+  it?") — one stake key routinely spans several payment addresses, so see its JSDoc before using it to
+  label anything.
 - `@cardano-mercury/core/money` — `formatAda` for lovelace.
 - `@cardano-mercury/core/db/migrate` — `runCoreMigrations(connectionString)`, the programmatic form
   of the `mercury-core migrate` command below.
