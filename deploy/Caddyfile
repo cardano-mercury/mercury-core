@@ -1,0 +1,41 @@
+# Production. Caddy terminates TLS and issues certificates over ACME, which needs ports 80 and 443
+# reachable from the internet and the DNS records already pointing here:
+#
+#   demo-financials.cardano-mercury.com   A/AAAA -> this host
+#   demo-tokenomics.cardano-mercury.com   A/AAAA -> this host
+#
+# Neither resolves as of 2026-07-13. DNS is a hard prerequisite; nothing below works without it.
+# For a dry run with no DNS and no public host, use Caddyfile.local instead (see README).
+
+{
+	# Receives the Let's Encrypt expiry warnings. Use a real address you read.
+	email {$ACME_EMAIL}
+}
+
+# The two apps must be siblings under one parent domain, because the session cookie is scoped to
+# that parent (COOKIE_DOMAIN=.cardano-mercury.com). That parent is what makes one login work on
+# both. Move either app to a different registrable domain and SSO stops, silently.
+
+demo-financials.cardano-mercury.com {
+	encode gzip
+
+	# Caddy sets X-Forwarded-Proto and X-Forwarded-Host by default, and the app images set
+	# PROTOCOL_HEADER / HOST_HEADER to read exactly those. Without that pairing adapter-node builds
+	# absolute URLs as http://financials:3000 and Better Auth rejects its own callbacks as
+	# cross-origin. It is the most common way this setup breaks.
+	reverse_proxy financials:3000 {
+		health_uri /healthz
+		health_interval 5s
+		health_timeout 2s
+	}
+}
+
+demo-tokenomics.cardano-mercury.com {
+	encode gzip
+
+	reverse_proxy tokenomics:3000 {
+		health_uri /healthz
+		health_interval 5s
+		health_timeout 2s
+	}
+}

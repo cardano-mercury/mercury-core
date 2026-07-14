@@ -1,0 +1,165 @@
+# The Mercury stack: financials and tokenomics on one Postgres, one account set, behind Caddy.
+#
+#   docker compose --env-file .env up -d                        # production
+#   docker compose -f compose.yaml -f compose.local.yaml \
+#     --env-file .env.local up -d                               # local dry run, see README
+#
+# This file lives in mercury-core because core is where the two apps already meet: shared schema,
+# shared auth, shared secret. Each app owns its own Dockerfile; core owns only the composition.
+#
+# The migration order is the load-bearing part. Both apps foreign-key their tables to the shared
+# `user` table, so core's migration has to finish before either app migrates. That is what the
+# core-migrate one-shot and the service_completed_successfully conditions below are for. Get this
+# wrong and the failure is an app migration dying on a missing `user` table, or worse, two apps
+# racing to create it.
+
+name: mercury
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates MUST persist. Without this volume every redeploy re-issues them and you will
+      # hit Let's Encrypt's rate limit and be locked out for a week.
+      - caddy_data:/data
+      - caddy_config:/config
+    # service_healthy, not service_started. Caddy's active health check marks an upstream down until
+    # its first successful probe, so if Caddy starts before the apps are actually serving it returns
+    # 503 for up to a whole health_interval after they are fine. Waiting for the app healthchecks
+    # means Caddy's first probe succeeds immediately, and a cold `up` never serves a 503.
+    depends_on:
+      financials:
+        condition: service_healthy
+      tokenomics:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Deliberately NOT published to the host. Only the app containers need it.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Financials' BullMQ wallet-sync queue. Tokenomics does not use Redis.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Creates the five shared Better Auth tables (user, session, account, verification, two_factor).
+  # Runs once and exits; both apps wait for it.
+  #
+  # No Dockerfile and no build context: core is a published package, so a stock node image and `npx`
+  # is the whole thing. The runner takes a Postgres advisory lock, so it is safe even if something
+  # else races it, and it is idempotent, so re-running on every `up` costs nothing.
+  #
+  # On a database whose auth tables predate core owning them, this exits non-zero and tells you to
+  # re-run once with `--baseline`. That refusal is deliberate: it will not guess.
+  core-migrate:
+    image: node:22-alpine
+    restart: 'no'
+    command: ['npx', '--yes', '@cardano-mercury/core@${CORE_VERSION:-0.2.1}', 'migrate']
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  financials-migrate:
+    build:
+      context: ${FINANCIALS_CONTEXT:-../../mercury-financials}
+      dockerfile: Dockerfile
+      target: migrate
+    restart: 'no'
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+
+  financials:
+    build:
+      context: ${FINANCIALS_CONTEXT:-../../mercury-financials}
+      dockerfile: Dockerfile
+      target: runner
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      ORIGIN: ${FINANCIALS_ORIGIN}
+      # Identical across both apps, or SSO silently fails: a session minted by one is rejected by
+      # the other with no useful error.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+      BLOCKFROST_NETWORK: ${BLOCKFROST_NETWORK:-mainnet}
+      BLOCKFROST_PROJECT_ID: ${BLOCKFROST_PROJECT_ID:-}
+      SINGLE_USER_MODE: ${FINANCIALS_SINGLE_USER_MODE:-true}
+      DEMO_MODE: ${FINANCIALS_DEMO_MODE:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      financials-migrate:
+        condition: service_completed_successfully
+
+  # Both apps install core from npm, so each builds from its own directory alone. The context stays
+  # a variable so a fork or a vendored checkout can point it elsewhere without editing this file.
+  tokenomics-migrate:
+    build:
+      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
+      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
+      target: migrate
+    restart: 'no'
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+
+  tokenomics:
+    build:
+      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
+      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
+      target: runner
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ORIGIN: ${TOKENOMICS_ORIGIN}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+      # Magic-link sign-in needs a real transport. Tokenomics 0.13.0 implements it (nodemailer);
+      # with SMTP_URL unset it hides the magic-link path and serves email/password plus TOTP.
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      tokenomics-migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:
