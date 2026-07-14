@@ -1,6 +1,6 @@
 {
 	"name": "@cardano-mercury/core",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Shared database schema, authentication, and Cardano utilities for the Mercury apps.",
 	"keywords": [
 		"cardano",
