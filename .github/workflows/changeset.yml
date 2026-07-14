@@ -1,0 +1,79 @@
+name: Changeset
+
+# Every pull request must say what it does to the published package, and it must say it in a
+# changeset rather than by editing CHANGELOG.md or the version directly.
+#
+# That indirection is the whole point. Several pull requests open at once all editing CHANGELOG.md
+# collide on the same lines every time, and the conflict is resolved by hand under time pressure,
+# which is how entries get lost. A changeset is a new file with a random name, so two PRs never touch
+# the same one. They accumulate on main and are collapsed into one version bump and one changelog
+# section by the release workflow.
+#
+# A change that does not affect the published package (CI, the deploy stack, repo docs) still needs a
+# changeset — an empty one: `npx changeset --empty`. It says "I thought about it and this ships
+# nothing", which is a different statement from silence.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changeset:
+    name: Changeset present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # changesets diffs against the base branch, so it needs the history, not a shallow clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: A changeset must be present
+        run: |
+          # Anything in .changeset/ that is not the config or the README is a changeset.
+          count=$(find .changeset -name '*.md' ! -name 'README.md' | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No changeset found. Run 'npx changeset' and commit the file it writes."
+            echo ""
+            echo "Pick the bump from what a consumer would experience:"
+            echo "  patch  a fix, or a docs/type change that does not alter behaviour"
+            echo "  minor  a backwards-compatible addition to db/auth/cardano/money"
+            echo "  major  any breaking change to those exports, or to a peer range"
+            echo ""
+            echo "If this PR ships nothing to the package (CI, deploy/, repo docs):"
+            echo "  npx changeset --empty"
+            exit 1
+          fi
+          echo "found $count changeset(s)"
+
+      # The version and the changelog are outputs of the release process, not inputs to a PR. Editing
+      # them by hand is what the changeset indirection exists to prevent, and it silently fights the
+      # release workflow.
+      - name: The version and the changelog are not edited by hand
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch --quiet origin "${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+
+          if echo "$changed" | grep -qx 'CHANGELOG.md'; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md is generated from changesets. Add a changeset instead of editing it."
+            exit 1
+          fi
+
+          if echo "$changed" | grep -qx 'package.json'; then
+            if ! git diff "$base"...HEAD -- package.json | grep -E '^[+-]\s*"version"' | grep -qv '^$'; then
+              echo "package.json changed, but not its version — fine."
+            else
+              echo "::error file=package.json::The version is bumped by the release workflow from the accumulated changesets. Do not set it by hand."
+              exit 1
+            fi
+          fi

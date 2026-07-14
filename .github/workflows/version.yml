@@ -1,0 +1,52 @@
+name: Version
+
+# Collapses the changesets that have accumulated on main into a single "Version Packages" pull
+# request: one version bump, one changelog section, derived from the bump types the contributors
+# declared. It rewrites that PR every time main moves, so it is always the pending release.
+#
+# This is what makes several PRs in flight safe. They each add a differently-named file to
+# .changeset/, so they never conflict with each other; the version and CHANGELOG.md are touched in
+# exactly one place, here, after they have all landed.
+#
+# Merging the Version Packages PR does not publish. It bumps the version and writes the changelog.
+# Publishing is still a tag: `git tag v$(node -p "require('./package.json').version") && git push
+# --tags` fires release.yml, which re-runs the full gate, checks the tag matches package.json, and
+# publishes with provenance. Keeping those two steps separate means a release is a deliberate act and
+# the tag always points at exactly what was published.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: version-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    name: Open or update the release PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Version packages
+        uses: changesets/action@v1
+        with:
+          version: npm run changeset:version
+          title: 'Release: version packages'
+          commit: 'Version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
