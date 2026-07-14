@@ -148,9 +148,10 @@ services:
       ORIGIN: ${TOKENOMICS_ORIGIN}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN}
-      # Magic-link sign-in is dead without this. Tokenomics' email transport is a console.log stub
-      # unless SMTP_URL is set.
+      # Magic-link sign-in needs a real transport. Tokenomics 0.13.0 implements it (nodemailer);
+      # with SMTP_URL unset it hides the magic-link path and serves email/password plus TOTP.
       SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     depends_on:
       db:
         condition: service_healthy

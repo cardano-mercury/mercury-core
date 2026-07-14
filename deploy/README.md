@@ -35,6 +35,28 @@ docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local \
 Magic-link emails go to a throwaway inbox at **http://localhost:8025** (mailpit), because without an
 SMTP transport tokenomics' magic-link sign-in is a `console.log` stub and simply does not work.
 
+### Testing SSO by hand: create the account on tokenomics, not financials
+
+Financials runs with `SINGLE_USER_MODE=true`, so **its `/signup` page redirects to `/login` and
+creates nothing.** If you try to prove SSO by signing up on financials in a browser, it will look
+exactly like SSO is broken when it is fine. Sign up on **tokenomics**, then load financials in the
+same browser — you should already be signed in.
+
+(Cookie sharing itself is direction-agnostic; this is only about which app will let you create an
+account through the UI.)
+
+### Seeding demo data
+
+The runner images carry only `build/`, so they cannot seed themselves. Use the migrate stage, which
+still has the dev dependencies:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local \
+  run --rm --entrypoint sh tokenomics-migrate -c 'node scripts/seed.mjs'
+```
+
+Financials seeds its chart of accounts on first boot, so it needs nothing.
+
 To tear it down, including the database:
 
 ```sh
@@ -93,6 +115,33 @@ transaction**, so a wallet with a long history is the main disk variable. Budget
 sync a busy mainnet wallet; for a Catalyst demo wallet it is negligible.
 
 Bandwidth is trivial. Any VPS tier's allowance is orders of magnitude more than this needs.
+
+## Check the images for secrets, once
+
+Docker reads `.dockerignore` from the **context root**, not from next to the Dockerfile. While core
+was a `file:` link the apps had to build with the parent directory as context, so their
+`.dockerignore` files were silently never applied and `.env` — a real mainnet Blockfrost key and the
+Better Auth secret — was copied into the image. Worse, the image worked _because_ the secret file was
+in it, which masked a separate bug.
+
+Both apps now build single-context and honour `.dockerignore`, so this is fixed. But "should be fine"
+is not a check:
+
+```sh
+./audit-images.sh ../../mercury-financials/.env ../../mercury-tokenomics/.env
+```
+
+It fails loudly (exit 1) if an image contains a `.env` file or embeds the value of any sensitive key
+from those files, and it names the offending file. Run it before pushing an image anywhere.
+
+Two things it deliberately gets right, because both are easy to get wrong:
+
+- It only greps for values of **sensitive** keys (`*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `*KEY*`,
+  `*PROJECT_ID*`, ...). Grepping every long env value produces false positives that train you to
+  ignore the tool — financials' `REDIS_URL` is `redis://localhost:6379`, and Vite compiles that
+  harmless default straight into the bundle. That is not a leak.
+- It **counts hits** rather than piping `grep` into `head`. Piping makes the pipeline succeed whether
+  or not it matched, so a naive `&& echo LEAKED` fires either way.
 
 ## Going to production
 
