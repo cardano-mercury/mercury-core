@@ -106,6 +106,11 @@ Maintainers only.
 The tag fires `release.yml`, which re-runs the full gate, refuses to publish if the tag and
 `package.json` disagree, and publishes to npm with provenance.
 
+The release pull request is opened by the **Mercury Release Bot**, a GitHub App owned by the
+organisation. It has to be an App rather than the built-in `GITHUB_TOKEN`: GitHub will not let a run
+created by that token trigger further runs, so a release pull request opened with it gets its checks
+stuck at `action_required` and can never merge against a protected `main`.
+
 Merging the release PR does not publish on its own. That separation is deliberate: a release is a
 decision rather than a side effect, and the tag always points at exactly what went out.
 

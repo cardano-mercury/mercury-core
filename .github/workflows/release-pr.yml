@@ -16,16 +16,20 @@ name: Release PR
 # It runs only after CI is green on development, so a release can only ever be assembled from a
 # commit that passed.
 #
-# RELEASE_TOKEN, and why it is not optional. A workflow run created with the built-in GITHUB_TOKEN
-# cannot trigger further workflow runs: GitHub blocks that to stop a workflow recursing. So a release
-# pull request opened with GITHUB_TOKEN gets its checks stuck at `action_required` forever, they
-# cannot be approved (that endpoint is only for fork pull requests), and since main requires those
-# checks the release can never merge. It is a silent deadlock and it looks like nothing at all.
+# The Mercury Release Bot, and why it is not optional. A workflow run created with the built-in
+# GITHUB_TOKEN cannot trigger further workflow runs: GitHub blocks that so a workflow cannot recurse.
+# So a release pull request opened with GITHUB_TOKEN gets its checks stuck at `action_required`
+# forever. They cannot be approved either, because that endpoint only exists for fork pull requests.
+# main requires those checks, so the release can never merge. It is a silent deadlock and it presents
+# as no checks at all rather than as an error.
 #
-# A personal access token (contents: write, pull-requests: write) makes the push and the pull request
-# come from a real identity, so the checks run normally. Without it this workflow still assembles the
-# release correctly, but somebody has to push an empty commit to the release branch by hand to wake
-# the checks up, and the pull request body says so.
+# A GitHub App installation token is a real actor, so what it pushes triggers CI normally. The App is
+# owned by the organisation and installed on every Mercury repo; `RELEASE_APP_ID` is an org variable
+# and `RELEASE_APP_PRIVATE_KEY` an org secret, so nothing here is per-repo. Setup is written up in
+# .claude/app-setup/README.md.
+#
+# Without the App this workflow still assembles the release correctly. Its pull request simply will
+# not have working checks, and the body says so, so nobody has to rediscover it.
 
 on:
   workflow_run:
@@ -50,12 +54,22 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
     steps:
+      # Mint a short-lived installation token for the release bot. Skipped when the App is not
+      # configured, so the workflow degrades rather than breaking. The App ID is a variable, not a
+      # secret, precisely so it can be tested in this `if`.
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        if: vars.RELEASE_APP_ID != ''
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v7
         with:
           ref: development
           fetch-depth: 0
           # The token the later `git push` inherits. See the note at the top.
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v6.4.0
         with:
@@ -99,8 +113,8 @@ jobs:
       - name: Open or update the pull request
         if: steps.pending.outputs.count != '0'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          HAS_PAT: ${{ secrets.RELEASE_TOKEN != '' }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          HAS_APP: ${{ steps.app-token.outputs.token != '' }}
           VERSION: ${{ steps.assemble.outputs.version }}
         run: |
           set -euo pipefail
@@ -110,8 +124,8 @@ jobs:
           # The trailing X is a sentinel, stripped after. Command substitution eats trailing newlines,
           # so without it the warning runs straight into the next sentence.
           warning=""
-          if [ "$HAS_PAT" != "true" ]; then
-            warning=$(printf '> **The checks on this pull request will not run.** It was opened with the built-in `GITHUB_TOKEN`, and GitHub does not let a run created by that token trigger further runs, so they sit at `action_required` and cannot be approved (that endpoint is only for fork pull requests). Push an empty commit to `release/v%s` to wake them, or add a `RELEASE_TOKEN` secret, a PAT with contents and pull-requests write, and this goes away permanently.\n\nX' "$VERSION")
+          if [ "$HAS_APP" != "true" ]; then
+            warning=$(printf '> **The checks on this pull request will not run.** It was opened with the built-in `GITHUB_TOKEN`, and GitHub does not let a run created by that token trigger further runs, so they sit at `action_required` and cannot be approved (that endpoint only exists for fork pull requests). Push an empty commit to `release/v%s` to wake them. To fix it permanently, install the Mercury Release Bot: see `.claude/app-setup/README.md`.\n\nX' "$VERSION")
             warning=${warning%X}
           fi
 
