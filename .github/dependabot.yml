@@ -1,0 +1,84 @@
+# Dependabot: weekly, with a cooldown so we are never the ones who discover that a release was bad,
+# and grouped so a quiet week is one pull request rather than nine.
+#
+# The cooldown is the important part. A freshly published version is the most likely to be yanked or
+# hotfixed, and a supply-chain compromise is usually caught within days. Waiting lets someone else
+# find it. Security updates are exempt: Dependabot's security PRs ignore `cooldown` entirely, which
+# is the behaviour we want — a known CVE should not wait a fortnight.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+
+    # A low ceiling on purpose. If more than this is outstanding, the answer is to deal with the
+    # backlog, not to open more pull requests about it.
+    open-pull-requests-limit: 5
+
+    cooldown:
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+      default-days: 7
+
+    groups:
+      # The routine stuff, in one PR. Patches and minors are backwards compatible by definition, so
+      # reviewing them as a batch is honest; reviewing them one at a time is theatre.
+      routine:
+        applies-to: version-updates
+        update-types: ['minor', 'patch']
+
+      # Majors are breaking by definition, so they get their own PR and a real read of the changelog.
+      # Grouped rather than one-per-dependency to keep the count down, but expect to split them.
+      major:
+        applies-to: version-updates
+        update-types: ['major']
+
+      # Security fixes land as their own group, immediately, ignoring the cooldown above.
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+
+    ignore:
+      # better-auth is pinned narrow on purpose: core and both apps must resolve the *same* copy, and
+      # a bump has to be coordinated across all three repos in one go or the shared auth schema
+      # diverges. A PR that bumps it here in isolation is a trap, so Dependabot does not open one.
+      # See the peer-dependency section of the README.
+      - dependency-name: better-auth
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+
+    labels:
+      - dependencies
+
+    commit-message:
+      prefix: 'deps'
+      prefix-development: 'deps-dev'
+      include: scope
+
+  # The actions in .github/workflows are dependencies too, and a compromised action runs with the
+  # repo's token. Same cooldown, same weekly cadence.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    # The github-actions ecosystem only supports `default-days`; the semver-specific keys are rejected
+    # at parse time, because action releases are tags rather than semver in Dependabot's model.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: 'ci'

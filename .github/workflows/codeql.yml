@@ -1,0 +1,48 @@
+name: CodeQL
+
+# Static analysis for the library itself. This package is the front door for authentication in every
+# Mercury app and it owns the migrations for a database three applications write to, so a flaw here
+# is not contained to one service. Dependabot watches what we depend on; this watches what we wrote.
+#
+# The weekly run is not redundant with the per-PR run: CodeQL's queries are updated continuously, so
+# a scheduled scan finds things in code that has not changed since the query that catches it shipped.
+
+on:
+  pull_request:
+    branches: [main, development]
+  push:
+    branches: [main, development]
+  schedule:
+    # Mondays, after the Dependabot run, so a bad week arrives all at once rather than in dribs.
+    - cron: '30 6 * * 1'
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-and-quality is noisier than the default but this is a small library and the
+          # quality queries have caught real things elsewhere; if it becomes noise, drop to
+          # security-extended.
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
