@@ -16,8 +16,13 @@ cross-subdomain session cookie.
 ```sh
 cd deploy
 cp .env.local.example .env.local
-docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local up -d --build
+docker compose -f compose.yaml -f compose.build.yaml -f compose.local.yaml \
+  --env-file .env.local up -d --build
 ```
+
+`compose.build.yaml` is what builds the app images from source. Leave it out and compose pulls them
+from GHCR instead (see "Pull, don't build" below) — the two are interchangeable, because a build tags
+the images with exactly the names the pull path expects.
 
 Then open **https://demo-financials.mercury.localhost** and
 **https://demo-tokenomics.mercury.localhost**.
@@ -31,6 +36,9 @@ docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local \
   cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-local-ca.crt
 # then trust caddy-local-ca.crt in your OS/browser certificate store
 ```
+
+(Every `docker compose` command below is shown without `-f compose.build.yaml`. Add it whenever you
+want to build from source rather than pull.)
 
 Magic-link emails go to a throwaway inbox at **http://localhost:8025** (mailpit), because without an
 SMTP transport tokenomics' magic-link sign-in is a `console.log` stub and simply does not work.
@@ -83,10 +91,73 @@ public domain and ports 80/443 reachable from the internet. Locally Caddy uses i
 Everything else is the same code path, so if the dry run is green the remaining risk on a real host
 is DNS, firewall, and Let's Encrypt — not the application.
 
+## Pull, don't build
+
+The app services in `compose.yaml` reference **published images**:
+
+```yaml
+financials:
+  image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-financials:${FINANCIALS_TAG:-latest}
+```
+
+so a deploy host only ever pulls:
+
+```sh
+docker compose --env-file .env up -d --pull always   # production
+docker compose --env-file .env pull                  # ship a new version
+docker compose --env-file .env up -d
+```
+
+Layer `compose.build.yaml` on to build from source instead. A build tags the results with these same
+image names, so nothing downstream can tell the difference, and `docker compose -f compose.yaml -f
+compose.build.yaml push` sends them to the registry.
+
+**Not yet live.** Neither app publishes to GHCR today — they have no CI at all. The asks are filed
+(`CORE_ASKS_FINANCIALS_PUBLISH_GHCR.md`, `CORE_ASKS_TOKENOMICS_PUBLISH_GHCR.md`). Until they land,
+add `-f compose.build.yaml` to every command below and build on the box. The image-based path itself
+is verified: the stack was brought up image-only, with no build overlay, and came up healthy with the
+migrations in order and SSO working.
+
+Each app publishes **two** images — the runner, and a migrate image that runs once before it. Two
+because the runner is installed with `--omit=dev` and the migration tools (drizzle-kit, drizzle-orm)
+are devDependencies, so the runner cannot migrate itself.
+
+## Running one app instead of both
+
+`COMPOSE_PROFILES` in `.env` picks which apps run. Both by default:
+
+```sh
+COMPOSE_PROFILES=financials,tokenomics   # default
+COMPOSE_PROFILES=financials              # financials + postgres + redis + caddy
+COMPOSE_PROFILES=tokenomics              # tokenomics + postgres + caddy (no redis)
+```
+
+The shared Postgres, the `core-migrate` one-shot and Caddy always run. Redis rides the financials
+profile, because tokenomics has no queue and does not use it.
+
+Verified both ways: each app comes up healthy over TLS on its own, with core's five shared auth tables
+created and **only** its own tables alongside them (no `tokenomics_*` when tokenomics is off, no
+`financials_*` when financials is off). Tokenomics alone runs in ~110 MiB against ~218 MiB for both.
+
+Two things to know:
+
+- **The disabled app's hostname answers `503`**, because Caddy still has a site block for it and marks
+  the missing upstream as down. Harmless, but drop its DNS record if you would rather it not resolve
+  at all. SSO obviously needs both apps running.
+- **Tear down with every profile enabled, or the other app is orphaned.** `docker compose down` only
+  touches services in the _active_ profiles, so switching `COMPOSE_PROFILES` and running a plain
+  `down` leaves the other app's containers behind, and the next `up` trips over them:
+
+  ```sh
+  COMPOSE_PROFILES=financials,tokenomics docker compose --env-file .env down -v --remove-orphans
+  ```
+
 ## Sizing the VPS
 
-Measured on the local run above (Caddy + Postgres + Redis + both apps, after light load; the mailpit
-sink is local-only and excluded):
+Two different questions: what does it cost to _run_, and what does it cost to _build_. They are an
+order of magnitude apart, which is the entire reason to pull images rather than build them.
+
+**Running**, measured with the stack up under light load (mailpit is local-only and excluded):
 
 | Service          | Resident     |
 | ---------------- | ------------ |
@@ -95,92 +166,118 @@ sink is local-only and excluded):
 | tokenomics       | ~39 MiB      |
 | caddy            | ~30 MiB      |
 | redis            | ~7 MiB       |
-| **total**        | **~228 MiB** |
+| **total**        | **~218 MiB** |
 
-So the stack at rest is small. **What actually sizes the box is building the images on it**, not
-running them. Two SvelteKit/Vite builds plus their `npm ci` are far hungrier than the servers they
-produce, and a 1 GB VPS will OOM partway through a build with a confusing error.
+**Disk, pull-only** — everything the host needs, and no build cache:
 
-**Recommended: 4 GB RAM, 2 vCPU, 40 GB SSD.** Comfortable for a demo that builds on the box, with
-room for Postgres to grow.
+| Image                         | Size        |
+| ----------------------------- | ----------- |
+| mercury-financials (runner)   | 433 MB      |
+| mercury-financials-migrate    | 569 MB      |
+| mercury-tokenomics (runner)   | 471 MB      |
+| mercury-tokenomics-migrate    | 608 MB      |
+| postgres:16-alpine            | 294 MB      |
+| node:22-alpine (core-migrate) | 163 MB      |
+| caddy:2-alpine                | 63 MB       |
+| redis:7-alpine                | 41 MB       |
+| **total**                     | **~2.6 GB** |
 
-**Minimum that works: 2 GB RAM, 1–2 vCPU, 20 GB SSD** — but only if you do **not** build on the
-host. Build the images elsewhere (CI, or your machine), push them to a registry such as GHCR, and
-change the two `build:` blocks in `compose.yaml` to `image:` references. Then the VPS only ever
-pulls and runs, and 2 GB is generous.
+**Building on the host** adds, on top of all that: a full Node/Vite dev toolchain, every
+devDependency of both apps, and a build cache measured in gigabytes. It also needs the RAM to run two
+SvelteKit builds — a 1 GB box OOMs partway through with an unhelpful error, and that is the single
+most likely way a first deploy fails.
 
-Disk is dominated by images (~1.3 GB for the runtime set) and by Postgres. The one thing that grows
-without bound is financials' ingestion: it stores the **raw Blockfrost payload for every
-transaction**, so a wallet with a long history is the main disk variable. Budget accordingly if you
-sync a busy mainnet wallet; for a Catalyst demo wallet it is negligible.
+So:
 
-Bandwidth is trivial. Any VPS tier's allowance is orders of magnitude more than this needs.
+- **Pull prebuilt images (recommended): 2 GB RAM, 1–2 vCPU, 20 GB SSD.** Generous. The box is not a
+  build machine and never needs to be.
+- **Build on the host: 4 GB RAM, 2 vCPU, 40 GB SSD.** Only worth it before the apps publish to GHCR.
 
-## Check the images for secrets, once
+The one term that grows without bound is financials' ingestion: it stores the **raw Blockfrost payload
+for every transaction**, so a wallet with a long history is the main disk variable. Negligible for a
+Catalyst demo wallet; budget for it if you sync a busy mainnet one.
 
-Docker reads `.dockerignore` from the **context root**, not from next to the Dockerfile. While core
-was a `file:` link the apps had to build with the parent directory as context, so their
-`.dockerignore` files were silently never applied and `.env` — a real mainnet Blockfrost key and the
-Better Auth secret — was copied into the image. Worse, the image worked _because_ the secret file was
-in it, which masked a separate bug.
-
-Both apps now build single-context and honour `.dockerignore`, so this is fixed. But "should be fine"
-is not a check:
-
-```sh
-./audit-images.sh ../../mercury-financials/.env ../../mercury-tokenomics/.env
-```
-
-It fails loudly (exit 1) if an image contains a `.env` file or embeds the value of any sensitive key
-from those files, and it names the offending file. Run it before pushing an image anywhere.
-
-Two things it deliberately gets right, because both are easy to get wrong:
-
-- It only greps for values of **sensitive** keys (`*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `*KEY*`,
-  `*PROJECT_ID*`, ...). Grepping every long env value produces false positives that train you to
-  ignore the tool — financials' `REDIS_URL` is `redis://localhost:6379`, and Vite compiles that
-  harmless default straight into the bundle. That is not a leak.
-- It **counts hits** rather than piping `grep` into `head`. Piping makes the pipeline succeed whether
-  or not it matched, so a naive `&& echo LEAKED` fires either way.
+Bandwidth is trivial either way.
 
 ## Going to production
 
 ### 1. DNS, first, because nothing works without it
 
-`cardano-mercury.com` **does not currently resolve at all**, apex or subdomain. Point these at the
-VPS before anything else, and let them propagate:
+Pick two hostnames under **one parent domain** and point both at the VM:
 
 ```
-demo-financials.cardano-mercury.com   A (and AAAA)  ->  <VPS IP>
-demo-tokenomics.cardano-mercury.com   A (and AAAA)  ->  <VPS IP>
+demo-financials.example.com   A (and AAAA)  ->  <VPS IP>
+demo-tokenomics.example.com   A (and AAAA)  ->  <VPS IP>
 ```
 
-Both apps must be siblings under **one** parent domain. The session cookie is scoped to that parent
-(`COOKIE_DOMAIN=.cardano-mercury.com`), and that is the entire mechanism behind one login working on
-both. Move either app to a different registrable domain and SSO stops working, silently.
+The parent is not cosmetic. The session cookie is scoped to it (`COOKIE_DOMAIN=.example.com`), and
+that is the entire mechanism behind one login working on both apps. Put them on different registrable
+domains and SSO stops working, silently.
 
-Verify before continuing, since Caddy will otherwise burn Let's Encrypt attempts:
+Any domain works — the Caddyfile takes its hostnames from `.env`, so there is nothing to edit. (For
+the Mercury demo the intended names are `demo-financials.cardano-mercury.com` and
+`demo-tokenomics.cardano-mercury.com`. As of 2026-07-13 `cardano-mercury.com` **does not resolve at
+all**, apex or subdomain, so this step is genuinely undone.)
+
+Verify before continuing, because Caddy will otherwise burn Let's Encrypt attempts against a name
+that does not resolve, and repeated failures get you rate-limited for a week:
 
 ```sh
-dig +short demo-financials.cardano-mercury.com
-dig +short demo-tokenomics.cardano-mercury.com
+dig +short demo-financials.example.com
+dig +short demo-tokenomics.example.com
 ```
 
-### 2. The host
+### 2. The host: a fresh Ubuntu VM, from nothing
 
-Ports **80 and 443 must be reachable from the internet** — 80 is not optional, Caddy needs it for
-the ACME HTTP challenge.
+Docker Engine and the compose plugin, from Docker's own repository (Ubuntu's `docker.io` package is
+older and ships no `docker compose`):
 
 ```sh
-# Docker Engine + compose plugin, then:
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+```
+
+Run Docker as your own user rather than with `sudo` on every command (log out and back in after):
+
+```sh
+sudo usermod -aG docker $USER
+```
+
+Firewall. **Port 80 is not optional** — Caddy needs it for the ACME HTTP challenge, even though all
+real traffic ends up on 443:
+
+```sh
 sudo ufw allow 22,80,443/tcp && sudo ufw enable
 ```
 
-### 3. Get the code onto it
+Check it before moving on:
 
-Both apps install core from npm, so each builds from its own directory alone. Nothing needs a
-sibling checkout any more, but the compose file lives in mercury-core and its default build contexts
-are relative, so the simplest layout is still to clone all three side by side:
+```sh
+docker run --rm hello-world && docker compose version
+```
+
+### 3. Get the compose file onto it
+
+Once the apps publish to GHCR, the host needs **this repo only** — not the app source:
+
+```sh
+git clone https://github.com/cardano-mercury/mercury-core.git
+cd mercury-core/deploy
+```
+
+The app images are pulled; nothing is built on the box.
+
+Until they publish, you also need the two app repos checked out as siblings of `mercury-core`, and
+every command below needs `-f compose.build.yaml` added so compose builds them:
 
 ```sh
 mkdir -p ~/cardano-mercury && cd ~/cardano-mercury
@@ -189,9 +286,8 @@ git clone https://github.com/cardano-mercury/mercury-financials.git
 git clone https://github.com/cardano-mercury/mercury-tokenomics.git
 ```
 
-`FINANCIALS_CONTEXT` and `TOKENOMICS_CONTEXT` in `.env` point at those directories. Change them if
-you lay the repos out differently, or switch the `build:` blocks to `image:` and pull prebuilt
-images instead.
+`FINANCIALS_CONTEXT` and `TOKENOMICS_CONTEXT` in `.env` point at those directories. Building on the
+host is the 4 GB configuration; pulling is the 2 GB one.
 
 ### 4. Configure
 
@@ -200,20 +296,38 @@ cd ~/cardano-mercury/mercury-core/deploy
 cp .env.example .env
 ```
 
-Fill in `.env`. The two that break things quietly:
+Fill in `.env`. The domain lives in three lines and nowhere else — Caddy reads the hostnames for its
+site addresses and its certificates, and each app's `ORIGIN` is derived from them in `compose.yaml`:
+
+```sh
+FINANCIALS_HOST=demo-financials.example.com
+TOKENOMICS_HOST=demo-tokenomics.example.com
+COOKIE_DOMAIN=.example.com          # the parent of both, with the leading dot
+```
+
+Verified: changing just those three lines moves the whole stack to a different domain, certificates
+and cross-app SSO included. There is no Caddyfile to edit.
+
+The rest, and the two that break things quietly:
 
 - **`BETTER_AUTH_SECRET`** must be byte-identical for both apps (they read the same variable here, so
-  just generate it once: `openssl rand -base64 32`). If it ever differs, a session minted by one app
-  is rejected by the other with no useful error.
-- **`COOKIE_DOMAIN`** must be the parent of both origins, with the leading dot.
+  generate it once: `openssl rand -base64 32`). If it ever differs, a session minted by one app is
+  rejected by the other with no useful error.
+- **`COOKIE_DOMAIN`** must be the parent of _both_ hostnames, with the leading dot. Get this wrong and
+  each app works fine on its own while SSO quietly does nothing.
+- **`ACME_EMAIL`** receives the Let's Encrypt expiry warnings. Use an address you read.
+- **`POSTGRES_PASSWORD`** and `DATABASE_URL` must agree with each other.
 
 `.env` and `.env.local` are git-ignored.
 
 ### 5. Bring it up
 
 ```sh
-docker compose --env-file .env up -d --build
+docker compose --env-file .env up -d --pull always
 ```
+
+(Add `-f compose.build.yaml` and `--build` instead of `--pull always` if you are building on the
+host because the images are not published yet.)
 
 Certificates are issued on the first request to each hostname. Watch it happen:
 

@@ -1,19 +1,20 @@
 # Local dry run. Same routing as production, but Caddy signs certificates with its own internal CA
 # instead of talking to Let's Encrypt, so this needs no public DNS, no VPS, and no open ports.
 #
-# The hostnames end in `.localhost`, which Chrome and Firefox resolve to 127.0.0.1 on their own. No
-# hosts-file editing. (curl does not, hence the --resolve in the README.)
+# The hostnames come from the environment, exactly as in production. `.env.local.example` sets them
+# to `*.mercury.localhost`, which Chrome and Firefox resolve to 127.0.0.1 on their own — no hosts
+# file to edit. (curl does not, hence the --resolve in the README.)
 #
-# The parent domain still matters: the session cookie is scoped to .mercury.localhost, and that is
-# what makes one login valid on both apps. This is the same mechanism as production, just a
-# different parent, so a local run genuinely exercises SSO rather than faking it.
+# The parent domain still matters: the session cookie is scoped to it, and that is what makes one
+# login valid on both apps. Same mechanism as production, just a different parent, so a local run
+# genuinely exercises SSO rather than faking it.
 
 {
 	# No ACME, no email needed. Caddy mints a local CA and signs both hosts from it.
 	local_certs
 }
 
-demo-financials.mercury.localhost {
+{$FINANCIALS_HOST} {
 	encode gzip
 	reverse_proxy financials:3000 {
 		health_uri /healthz
@@ -22,7 +23,7 @@ demo-financials.mercury.localhost {
 	}
 }
 
-demo-tokenomics.mercury.localhost {
+{$TOKENOMICS_HOST} {
 	encode gzip
 	reverse_proxy tokenomics:3000 {
 		health_uri /healthz
