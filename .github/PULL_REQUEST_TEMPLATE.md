@@ -1,3 +1,11 @@
+<!--
+  Base this on `development`, not `main`.
+
+  `main` is release-only: nothing lands on it except the "Release vX.Y.Z" pull request that the
+  Release PR workflow assembles from everything waiting on `development`. If you opened this against
+  `main` by accident, use "Edit" at the top and change the base branch.
+-->
+
 ## What and why
 
 <!-- What changes, and what problem it solves. Link the issue or TRD if there is one. -->
