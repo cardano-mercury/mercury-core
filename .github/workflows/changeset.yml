@@ -25,19 +25,40 @@ jobs:
     name: Changeset present
     runs-on: ubuntu-latest
     steps:
+      # The release PR is the one thing that is *supposed* to do all of this: it consumes every
+      # changeset, bumps the version and writes CHANGELOG.md. Checking it against the rules below
+      # would fail it on all three counts and deadlock every release.
+      #
+      # The steps are skipped rather than the whole job, deliberately. A skipped job reports no status
+      # at all, and a required check that never reports blocks the pull request forever, which is the
+      # same deadlock by a different route. Running the job and having it do nothing reports success.
+      - name: The release PR is exempt
+        id: release_pr
+        run: |
+          if [[ "${{ github.head_ref }}" == changeset-release/* ]]; then
+            echo "This is the release PR. It is meant to consume the changesets and write the changelog."
+            echo "exempt=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exempt=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.release_pr.outputs.exempt == 'false'
         with:
           # changesets diffs against the base branch, so it needs the history, not a shallow clone.
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
+        if: steps.release_pr.outputs.exempt == 'false'
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
+        if: steps.release_pr.outputs.exempt == 'false'
 
       - name: A changeset must be present
+        if: steps.release_pr.outputs.exempt == 'false'
         run: |
           # Anything in .changeset/ that is not the config or the README is a changeset.
           count=$(find .changeset -name '*.md' ! -name 'README.md' | wc -l)
@@ -56,24 +77,30 @@ jobs:
           echo "found $count changeset(s)"
 
       # The version and the changelog are outputs of the release process, not inputs to a PR. Editing
-      # them by hand is what the changeset indirection exists to prevent, and it silently fights the
+      # them by hand is what the changeset indirection exists to prevent, and it quietly fights the
       # release workflow.
       - name: The version and the changelog are not edited by hand
+        if: steps.release_pr.outputs.exempt == 'false'
         run: |
+          set -euo pipefail
           base="origin/${{ github.base_ref }}"
           git fetch --quiet origin "${{ github.base_ref }}"
-          changed=$(git diff --name-only "$base"...HEAD)
 
-          if echo "$changed" | grep -qx 'CHANGELOG.md'; then
-            echo "::error file=CHANGELOG.md::CHANGELOG.md is generated from changesets. Add a changeset instead of editing it."
-            exit 1
-          fi
-
-          if echo "$changed" | grep -qx 'package.json'; then
-            if ! git diff "$base"...HEAD -- package.json | grep -E '^[+-]\s*"version"' | grep -qv '^$'; then
-              echo "package.json changed, but not its version — fine."
-            else
-              echo "::error file=package.json::The version is bumped by the release workflow from the accumulated changesets. Do not set it by hand."
+          # Only complain about a changelog that already exists on the base. The pull request that
+          # introduces the file obviously has to add it.
+          if git cat-file -e "$base:CHANGELOG.md" 2>/dev/null; then
+            if git diff --name-only "$base"...HEAD | grep -qx 'CHANGELOG.md'; then
+              echo "::error file=CHANGELOG.md::CHANGELOG.md is generated from the changesets. Add a changeset instead of editing it."
               exit 1
             fi
           fi
+
+          # Compare the versions directly rather than pattern-matching the diff, which gets this wrong
+          # in both directions.
+          old=$(git show "$base:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          new=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
+          if [ "$old" != "$new" ]; then
+            echo "::error file=package.json::Version changed by hand ($old -> $new). The release workflow bumps it from the accumulated changesets."
+            exit 1
+          fi
+          echo "version unchanged ($new), changelog not hand-edited"
