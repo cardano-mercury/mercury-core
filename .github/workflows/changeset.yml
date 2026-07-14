@@ -45,11 +45,16 @@ jobs:
             exit 0
           fi
 
-          # Dependabot cannot write a changeset, so requiring one would simply wedge every dependency
-          # update. Core's runtime dependencies are near-nil and its peer ranges are excluded from
-          # Dependabot entirely (they must move in lockstep across three repos), so a bot bump ships
-          # nothing to a consumer. If one ever does, add a changeset to the bot's branch by hand.
-          if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
+          # Dependabot cannot write a changeset, so requiring one would wedge every dependency update.
+          # Core's runtime dependencies are near-nil and its peer ranges are excluded from Dependabot
+          # entirely (they must move in lockstep across three repos), so a bot bump ships nothing to a
+          # consumer. If one ever does, add a changeset to the bot's branch by hand.
+          #
+          # Match on the branch, not the actor. `github.actor` is dependabot[bot] only on the events
+          # Dependabot itself raises; the moment a human clicks "Update branch" the actor becomes that
+          # human and an actor-based exemption silently evaporates, failing a PR that passed a minute
+          # ago. The branch name does not move.
+          if [[ "${{ github.head_ref }}" == dependabot/* ]]; then
             echo "Dependabot cannot add a changeset."
             echo "exempt=true" >> "$GITHUB_OUTPUT"
             exit 0
