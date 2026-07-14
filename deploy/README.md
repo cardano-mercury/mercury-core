@@ -122,6 +122,36 @@ Each app publishes **two** images — the runner, and a migrate image that runs 
 because the runner is installed with `--omit=dev` and the migration tools (drizzle-kit, drizzle-orm)
 are devDependencies, so the runner cannot migrate itself.
 
+## Running one app instead of both
+
+`COMPOSE_PROFILES` in `.env` picks which apps run. Both by default:
+
+```sh
+COMPOSE_PROFILES=financials,tokenomics   # default
+COMPOSE_PROFILES=financials              # financials + postgres + redis + caddy
+COMPOSE_PROFILES=tokenomics              # tokenomics + postgres + caddy (no redis)
+```
+
+The shared Postgres, the `core-migrate` one-shot and Caddy always run. Redis rides the financials
+profile, because tokenomics has no queue and does not use it.
+
+Verified both ways: each app comes up healthy over TLS on its own, with core's five shared auth tables
+created and **only** its own tables alongside them (no `tokenomics_*` when tokenomics is off, no
+`financials_*` when financials is off). Tokenomics alone runs in ~110 MiB against ~218 MiB for both.
+
+Two things to know:
+
+- **The disabled app's hostname answers `503`**, because Caddy still has a site block for it and marks
+  the missing upstream as down. Harmless, but drop its DNS record if you would rather it not resolve
+  at all. SSO obviously needs both apps running.
+- **Tear down with every profile enabled, or the other app is orphaned.** `docker compose down` only
+  touches services in the _active_ profiles, so switching `COMPOSE_PROFILES` and running a plain
+  `down` leaves the other app's containers behind, and the next `up` trips over them:
+
+  ```sh
+  COMPOSE_PROFILES=financials,tokenomics docker compose --env-file .env down -v --remove-orphans
+  ```
+
 ## Sizing the VPS
 
 Two different questions: what does it cost to _run_, and what does it cost to _build_. They are an
@@ -173,33 +203,66 @@ Bandwidth is trivial either way.
 
 ### 1. DNS, first, because nothing works without it
 
-`cardano-mercury.com` **does not currently resolve at all**, apex or subdomain. Point these at the
-VPS before anything else, and let them propagate:
+Pick two hostnames under **one parent domain** and point both at the VM:
 
 ```
-demo-financials.cardano-mercury.com   A (and AAAA)  ->  <VPS IP>
-demo-tokenomics.cardano-mercury.com   A (and AAAA)  ->  <VPS IP>
+demo-financials.example.com   A (and AAAA)  ->  <VPS IP>
+demo-tokenomics.example.com   A (and AAAA)  ->  <VPS IP>
 ```
 
-Both apps must be siblings under **one** parent domain. The session cookie is scoped to that parent
-(`COOKIE_DOMAIN=.cardano-mercury.com`), and that is the entire mechanism behind one login working on
-both. Move either app to a different registrable domain and SSO stops working, silently.
+The parent is not cosmetic. The session cookie is scoped to it (`COOKIE_DOMAIN=.example.com`), and
+that is the entire mechanism behind one login working on both apps. Put them on different registrable
+domains and SSO stops working, silently.
 
-Verify before continuing, since Caddy will otherwise burn Let's Encrypt attempts:
+Any domain works — the Caddyfile takes its hostnames from `.env`, so there is nothing to edit. (For
+the Mercury demo the intended names are `demo-financials.cardano-mercury.com` and
+`demo-tokenomics.cardano-mercury.com`. As of 2026-07-13 `cardano-mercury.com` **does not resolve at
+all**, apex or subdomain, so this step is genuinely undone.)
+
+Verify before continuing, because Caddy will otherwise burn Let's Encrypt attempts against a name
+that does not resolve, and repeated failures get you rate-limited for a week:
 
 ```sh
-dig +short demo-financials.cardano-mercury.com
-dig +short demo-tokenomics.cardano-mercury.com
+dig +short demo-financials.example.com
+dig +short demo-tokenomics.example.com
 ```
 
-### 2. The host
+### 2. The host: a fresh Ubuntu VM, from nothing
 
-Ports **80 and 443 must be reachable from the internet** — 80 is not optional, Caddy needs it for
-the ACME HTTP challenge.
+Docker Engine and the compose plugin, from Docker's own repository (Ubuntu's `docker.io` package is
+older and ships no `docker compose`):
 
 ```sh
-# Docker Engine + compose plugin, then:
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+```
+
+Run Docker as your own user rather than with `sudo` on every command (log out and back in after):
+
+```sh
+sudo usermod -aG docker $USER
+```
+
+Firewall. **Port 80 is not optional** — Caddy needs it for the ACME HTTP challenge, even though all
+real traffic ends up on 443:
+
+```sh
 sudo ufw allow 22,80,443/tcp && sudo ufw enable
+```
+
+Check it before moving on:
+
+```sh
+docker run --rm hello-world && docker compose version
 ```
 
 ### 3. Get the compose file onto it
@@ -233,12 +296,27 @@ cd ~/cardano-mercury/mercury-core/deploy
 cp .env.example .env
 ```
 
-Fill in `.env`. The two that break things quietly:
+Fill in `.env`. The domain lives in three lines and nowhere else — Caddy reads the hostnames for its
+site addresses and its certificates, and each app's `ORIGIN` is derived from them in `compose.yaml`:
+
+```sh
+FINANCIALS_HOST=demo-financials.example.com
+TOKENOMICS_HOST=demo-tokenomics.example.com
+COOKIE_DOMAIN=.example.com          # the parent of both, with the leading dot
+```
+
+Verified: changing just those three lines moves the whole stack to a different domain, certificates
+and cross-app SSO included. There is no Caddyfile to edit.
+
+The rest, and the two that break things quietly:
 
 - **`BETTER_AUTH_SECRET`** must be byte-identical for both apps (they read the same variable here, so
-  just generate it once: `openssl rand -base64 32`). If it ever differs, a session minted by one app
-  is rejected by the other with no useful error.
-- **`COOKIE_DOMAIN`** must be the parent of both origins, with the leading dot.
+  generate it once: `openssl rand -base64 32`). If it ever differs, a session minted by one app is
+  rejected by the other with no useful error.
+- **`COOKIE_DOMAIN`** must be the parent of _both_ hostnames, with the leading dot. Get this wrong and
+  each app works fine on its own while SSO quietly does nothing.
+- **`ACME_EMAIL`** receives the Let's Encrypt expiry warnings. Use an address you read.
+- **`POSTGRES_PASSWORD`** and `DATABASE_URL` must agree with each other.
 
 `.env` and `.env.local` are git-ignored.
 

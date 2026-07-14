@@ -28,6 +28,13 @@ services:
     ports:
       - '80:80'
       - '443:443'
+    # The Caddyfile reads these as {$FINANCIALS_HOST} / {$TOKENOMICS_HOST} / {$ACME_EMAIL}, so the
+    # public domain is set here and nowhere else. They must reach the container: a Caddyfile
+    # placeholder with no matching variable silently expands to an empty site address.
+    environment:
+      FINANCIALS_HOST: ${FINANCIALS_HOST}
+      TOKENOMICS_HOST: ${TOKENOMICS_HOST}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates MUST persist. Without this volume every redeploy re-issues them and you will
@@ -38,11 +45,16 @@ services:
     # its first successful probe, so if Caddy starts before the apps are actually serving it returns
     # 503 for up to a whole health_interval after they are fine. Waiting for the app healthchecks
     # means Caddy's first probe succeeds immediately, and a cold `up` never serves a 503.
+    #
+    # required: false so Caddy still starts when an app is switched off via COMPOSE_PROFILES. The
+    # absent app's hostname then answers 502; the other one is unaffected.
     depends_on:
       financials:
         condition: service_healthy
+        required: false
       tokenomics:
         condition: service_healthy
+        required: false
 
   db:
     image: postgres:16-alpine
@@ -60,8 +72,10 @@ services:
       timeout: 5s
       retries: 10
 
-  # Financials' BullMQ wallet-sync queue. Tokenomics does not use Redis.
+  # Financials' BullMQ wallet-sync queue. Tokenomics does not use Redis, so this rides the
+  # financials profile.
   redis:
+    profiles: ['financials']
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
@@ -92,6 +106,7 @@ services:
         condition: service_healthy
 
   financials-migrate:
+    profiles: ['financials']
     image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-financials-migrate:${FINANCIALS_TAG:-latest}
     restart: 'no'
     environment:
@@ -101,12 +116,15 @@ services:
         condition: service_completed_successfully
 
   financials:
+    profiles: ['financials']
     image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-financials:${FINANCIALS_TAG:-latest}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: redis://redis:6379
-      ORIGIN: ${FINANCIALS_ORIGIN}
+      # Derived from FINANCIALS_HOST so the domain is defined once. Must match the Caddyfile
+      # site address exactly, or Better Auth rejects its own callbacks as cross-origin.
+      ORIGIN: https://${FINANCIALS_HOST}
       # Identical across both apps, or SSO silently fails: a session minted by one is rejected by
       # the other with no useful error.
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
@@ -124,6 +142,7 @@ services:
         condition: service_completed_successfully
 
   tokenomics-migrate:
+    profiles: ['tokenomics']
     image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-tokenomics-migrate:${TOKENOMICS_TAG:-latest}
     restart: 'no'
     environment:
@@ -133,11 +152,12 @@ services:
         condition: service_completed_successfully
 
   tokenomics:
+    profiles: ['tokenomics']
     image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-tokenomics:${TOKENOMICS_TAG:-latest}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      ORIGIN: ${TOKENOMICS_ORIGIN}
+      ORIGIN: https://${TOKENOMICS_HOST}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN}
       # Magic-link sign-in needs a real transport. Tokenomics 0.13.0 implements it (nodemailer);
