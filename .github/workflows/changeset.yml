@@ -54,6 +54,14 @@ jobs:
           # Dependabot itself raises; the moment a human clicks "Update branch" the actor becomes that
           # human and an actor-based exemption silently evaporates, failing a PR that passed a minute
           # ago. The branch name does not move.
+          # The back-merge carries the release commit down from main. It adds no changeset because the
+          # release already consumed them, which is the whole point of it.
+          if [[ "${{ github.head_ref }}" == backmerge/* ]]; then
+            echo "Back-merge from main. The release it carries already consumed its changesets."
+            echo "exempt=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [[ "${{ github.head_ref }}" == dependabot/* ]]; then
             echo "Dependabot cannot add a changeset."
             echo "exempt=true" >> "$GITHUB_OUTPUT"
