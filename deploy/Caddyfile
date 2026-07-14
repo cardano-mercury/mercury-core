@@ -1,10 +1,16 @@
 # Production. Caddy terminates TLS and issues certificates over ACME, which needs ports 80 and 443
-# reachable from the internet and the DNS records already pointing here:
+# reachable from the internet and DNS already pointing here.
 #
-#   demo-financials.cardano-mercury.com   A/AAAA -> this host
-#   demo-tokenomics.cardano-mercury.com   A/AAAA -> this host
+# The hostnames come from the environment, so a custom domain is a change to `.env` and nothing else:
 #
-# Neither resolves as of 2026-07-13. DNS is a hard prerequisite; nothing below works without it.
+#   FINANCIALS_HOST=demo-financials.example.com
+#   TOKENOMICS_HOST=demo-tokenomics.example.com
+#   COOKIE_DOMAIN=.example.com
+#
+# Both apps must be siblings under ONE parent domain. The session cookie is scoped to that parent
+# (COOKIE_DOMAIN), and that is the entire mechanism behind one login working on both. Put them on
+# different registrable domains and SSO stops, silently.
+#
 # For a dry run with no DNS and no public host, use Caddyfile.local instead (see README).
 
 {
@@ -12,11 +18,7 @@
 	email {$ACME_EMAIL}
 }
 
-# The two apps must be siblings under one parent domain, because the session cookie is scoped to
-# that parent (COOKIE_DOMAIN=.cardano-mercury.com). That parent is what makes one login work on
-# both. Move either app to a different registrable domain and SSO stops, silently.
-
-demo-financials.cardano-mercury.com {
+{$FINANCIALS_HOST} {
 	encode gzip
 
 	# Caddy sets X-Forwarded-Proto and X-Forwarded-Host by default, and the app images set
@@ -30,7 +32,7 @@ demo-financials.cardano-mercury.com {
 	}
 }
 
-demo-tokenomics.cardano-mercury.com {
+{$TOKENOMICS_HOST} {
 	encode gzip
 
 	reverse_proxy tokenomics:3000 {

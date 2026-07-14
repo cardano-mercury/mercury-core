@@ -64,14 +64,14 @@ jobs:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: development
           fetch-depth: 0
           # The token the later `git push` inherits. See the note at the top.
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: 22
           cache: npm
