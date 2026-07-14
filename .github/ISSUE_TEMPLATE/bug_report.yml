@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in the library does not do what it says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a security issue, **stop** and report it privately:
+        https://github.com/cardano-mercury/mercury-core/security/advisories/new
+
+  - type: input
+    id: version
+    attributes:
+      label: Core version
+      description: '`npm ls @cardano-mercury/core`'
+      placeholder: 0.2.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: entrypoint
+    attributes:
+      label: Which entry point
+      options:
+        - '@cardano-mercury/core/auth'
+        - '@cardano-mercury/core/db'
+        - '@cardano-mercury/core/db/migrate'
+        - '@cardano-mercury/core/cardano'
+        - '@cardano-mercury/core/money'
+        - the mercury-core migrate CLI
+        - the deploy/ stack
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest thing that shows it. A failing test is ideal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: |
+        Node version, and the versions of the peer dependencies (`better-auth`, `drizzle-orm`,
+        `@meshsdk/core`).
+
+        If it is a type error, say whether core is installed **from the registry or as a `file:`
+        link** — a `file:` link gives you a second physical copy of `better-auth`, which TypeScript
+        treats as a distinct type, and that produces spectacularly confusing errors that are not bugs
+        in core. The README has the details.
+      render: shell
+    validations:
+      required: true

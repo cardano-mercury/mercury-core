@@ -1,0 +1,13 @@
+# Every change here lands in a package that both Mercury apps install, so everything is reviewed.
+* @Crypto2099
+
+# The parts where a mistake is expensive and quiet, called out so they are never rubber-stamped:
+# the auth factory is the front door for every app, and the shared schema and its migrations are
+# written to one Postgres by three applications.
+/src/auth/    @Crypto2099
+/src/db/      @Crypto2099
+/drizzle/     @Crypto2099
+
+# Supply chain: the release workflow publishes to npm, and dependabot decides what we pull in.
+/.github/workflows/  @Crypto2099
+/.github/dependabot.yml @Crypto2099
