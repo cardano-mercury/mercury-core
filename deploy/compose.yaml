@@ -28,11 +28,15 @@ services:
       # hit Let's Encrypt's rate limit and be locked out for a week.
       - caddy_data:/data
       - caddy_config:/config
+    # service_healthy, not service_started. Caddy's active health check marks an upstream down until
+    # its first successful probe, so if Caddy starts before the apps are actually serving it returns
+    # 503 for up to a whole health_interval after they are fine. Waiting for the app healthchecks
+    # means Caddy's first probe succeeds immediately, and a cold `up` never serves a 503.
     depends_on:
       financials:
-        condition: service_started
+        condition: service_healthy
       tokenomics:
-        condition: service_started
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
@@ -119,16 +123,12 @@ services:
       financials-migrate:
         condition: service_completed_successfully
 
-  # NOTE: tokenomics still depends on core as `file:../mercury-core`, so its Dockerfile needs the
-  # PARENT directory holding all the repos as its build context, and the deploy host needs both
-  # repos checked out as siblings. Financials has already moved to the published package and builds
-  # from its own directory alone. Once tokenomics does the same, set TOKENOMICS_CONTEXT to
-  # ../../mercury-tokenomics and TOKENOMICS_DOCKERFILE to Dockerfile, and the sibling-checkout
-  # requirement disappears for good.
+  # Both apps install core from npm, so each builds from its own directory alone. The context stays
+  # a variable so a fork or a vendored checkout can point it elsewhere without editing this file.
   tokenomics-migrate:
     build:
-      context: ${TOKENOMICS_CONTEXT:-../..}
-      dockerfile: ${TOKENOMICS_DOCKERFILE:-mercury-tokenomics/Dockerfile}
+      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
+      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
       target: migrate
     restart: 'no'
     environment:
@@ -139,8 +139,8 @@ services:
 
   tokenomics:
     build:
-      context: ${TOKENOMICS_CONTEXT:-../..}
-      dockerfile: ${TOKENOMICS_DOCKERFILE:-mercury-tokenomics/Dockerfile}
+      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
+      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
       target: runner
     restart: unless-stopped
     environment:

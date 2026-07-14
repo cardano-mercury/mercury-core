@@ -43,7 +43,8 @@ docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local down 
 
 ### What the dry run does and does not prove
 
-Verified working in a local run on 2026-07-13:
+Verified working in a local run on 2026-07-13, with **both apps on the published
+`@cardano-mercury/core@0.2.1`** and each building from its own directory alone:
 
 - both app images build, and both come up healthy on `/healthz`;
 - the migration order holds: core's five shared auth tables are created first, then each app's own
@@ -128,11 +129,9 @@ sudo ufw allow 22,80,443/tcp && sudo ufw enable
 
 ### 3. Get the code onto it
 
-Financials installs core from npm and builds from its own directory alone.
-
-**Tokenomics still depends on core as `file:../mercury-core`**, so until it moves to the published
-package its build context has to be the parent directory holding the repos, and the host needs both
-checked out as siblings:
+Both apps install core from npm, so each builds from its own directory alone. Nothing needs a
+sibling checkout any more, but the compose file lives in mercury-core and its default build contexts
+are relative, so the simplest layout is still to clone all three side by side:
 
 ```sh
 mkdir -p ~/cardano-mercury && cd ~/cardano-mercury
@@ -141,13 +140,9 @@ git clone https://github.com/cardano-mercury/mercury-financials.git
 git clone https://github.com/cardano-mercury/mercury-tokenomics.git
 ```
 
-Once tokenomics switches to `"@cardano-mercury/core": "^0.2.1"`, set these in `.env` and the
-sibling-checkout requirement disappears:
-
-```sh
-TOKENOMICS_CONTEXT=../../mercury-tokenomics
-TOKENOMICS_DOCKERFILE=Dockerfile
-```
+`FINANCIALS_CONTEXT` and `TOKENOMICS_CONTEXT` in `.env` point at those directories. Change them if
+you lay the repos out differently, or switch the `build:` blocks to `image:` and pull prebuilt
+images instead.
 
 ### 4. Configure
 
@@ -238,3 +233,11 @@ is what stops you hitting the rate limit.
 
 **An app migration fails on a missing `user` table.** `core-migrate` did not run or did not succeed.
 Check its logs; it must complete before either app migrates.
+
+**A 503 from an app that is clearly running.** Caddy's active health check marks an upstream down
+until its first successful probe, so a Caddy that starts before its upstreams will 503 for up to one
+`health_interval` after they are perfectly healthy. The compose file avoids this by making Caddy
+`depends_on` both apps with `condition: service_healthy`, and the Caddyfiles probe every 5s rather
+than every 30s. If you rework either, keep that pairing, or a cold `up` will serve 503s from a
+working stack. Note Caddy itself takes a couple of seconds to start after the apps go healthy, so
+connection-refused immediately after `up` is normal and resolves on its own.
