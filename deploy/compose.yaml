@@ -1,8 +1,14 @@
 # The Mercury stack: financials and tokenomics on one Postgres, one account set, behind Caddy.
 #
-#   docker compose --env-file .env up -d                        # production
-#   docker compose -f compose.yaml -f compose.local.yaml \
-#     --env-file .env.local up -d                               # local dry run, see README
+#   docker compose --env-file .env up -d --pull always          # production: pull, never build
+#
+#   docker compose -f compose.yaml -f compose.build.yaml \
+#     -f compose.local.yaml --env-file .env.local up -d --build  # local dry run, builds from source
+#
+# The app services reference published images. A deploy host therefore only ever pulls, which is what
+# lets the demo box be small: building two SvelteKit apps needs several GB of RAM, running them needs
+# a couple of hundred MB. Layer compose.build.yaml on top to build from source instead; it tags the
+# results with these same image names, so everything downstream is identical either way.
 #
 # This file lives in mercury-core because core is where the two apps already meet: shared schema,
 # shared auth, shared secret. Each app owns its own Dockerfile; core owns only the composition.
@@ -86,10 +92,7 @@ services:
         condition: service_healthy
 
   financials-migrate:
-    build:
-      context: ${FINANCIALS_CONTEXT:-../../mercury-financials}
-      dockerfile: Dockerfile
-      target: migrate
+    image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-financials-migrate:${FINANCIALS_TAG:-latest}
     restart: 'no'
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -98,10 +101,7 @@ services:
         condition: service_completed_successfully
 
   financials:
-    build:
-      context: ${FINANCIALS_CONTEXT:-../../mercury-financials}
-      dockerfile: Dockerfile
-      target: runner
+    image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-financials:${FINANCIALS_TAG:-latest}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -123,13 +123,8 @@ services:
       financials-migrate:
         condition: service_completed_successfully
 
-  # Both apps install core from npm, so each builds from its own directory alone. The context stays
-  # a variable so a fork or a vendored checkout can point it elsewhere without editing this file.
   tokenomics-migrate:
-    build:
-      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
-      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
-      target: migrate
+    image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-tokenomics-migrate:${TOKENOMICS_TAG:-latest}
     restart: 'no'
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -138,10 +133,7 @@ services:
         condition: service_completed_successfully
 
   tokenomics:
-    build:
-      context: ${TOKENOMICS_CONTEXT:-../../mercury-tokenomics}
-      dockerfile: ${TOKENOMICS_DOCKERFILE:-Dockerfile}
-      target: runner
+    image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-tokenomics:${TOKENOMICS_TAG:-latest}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}

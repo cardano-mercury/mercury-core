@@ -16,8 +16,13 @@ cross-subdomain session cookie.
 ```sh
 cd deploy
 cp .env.local.example .env.local
-docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local up -d --build
+docker compose -f compose.yaml -f compose.build.yaml -f compose.local.yaml \
+  --env-file .env.local up -d --build
 ```
+
+`compose.build.yaml` is what builds the app images from source. Leave it out and compose pulls them
+from GHCR instead (see "Pull, don't build" below) — the two are interchangeable, because a build tags
+the images with exactly the names the pull path expects.
 
 Then open **https://demo-financials.mercury.localhost** and
 **https://demo-tokenomics.mercury.localhost**.
@@ -31,6 +36,9 @@ docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local \
   cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-local-ca.crt
 # then trust caddy-local-ca.crt in your OS/browser certificate store
 ```
+
+(Every `docker compose` command below is shown without `-f compose.build.yaml`. Add it whenever you
+want to build from source rather than pull.)
 
 Magic-link emails go to a throwaway inbox at **http://localhost:8025** (mailpit), because without an
 SMTP transport tokenomics' magic-link sign-in is a `console.log` stub and simply does not work.
@@ -83,10 +91,43 @@ public domain and ports 80/443 reachable from the internet. Locally Caddy uses i
 Everything else is the same code path, so if the dry run is green the remaining risk on a real host
 is DNS, firewall, and Let's Encrypt — not the application.
 
+## Pull, don't build
+
+The app services in `compose.yaml` reference **published images**:
+
+```yaml
+financials:
+  image: ${REGISTRY:-ghcr.io}/${GHCR_OWNER:-cardano-mercury}/mercury-financials:${FINANCIALS_TAG:-latest}
+```
+
+so a deploy host only ever pulls:
+
+```sh
+docker compose --env-file .env up -d --pull always   # production
+docker compose --env-file .env pull                  # ship a new version
+docker compose --env-file .env up -d
+```
+
+Layer `compose.build.yaml` on to build from source instead. A build tags the results with these same
+image names, so nothing downstream can tell the difference, and `docker compose -f compose.yaml -f
+compose.build.yaml push` sends them to the registry.
+
+**Not yet live.** Neither app publishes to GHCR today — they have no CI at all. The asks are filed
+(`CORE_ASKS_FINANCIALS_PUBLISH_GHCR.md`, `CORE_ASKS_TOKENOMICS_PUBLISH_GHCR.md`). Until they land,
+add `-f compose.build.yaml` to every command below and build on the box. The image-based path itself
+is verified: the stack was brought up image-only, with no build overlay, and came up healthy with the
+migrations in order and SSO working.
+
+Each app publishes **two** images — the runner, and a migrate image that runs once before it. Two
+because the runner is installed with `--omit=dev` and the migration tools (drizzle-kit, drizzle-orm)
+are devDependencies, so the runner cannot migrate itself.
+
 ## Sizing the VPS
 
-Measured on the local run above (Caddy + Postgres + Redis + both apps, after light load; the mailpit
-sink is local-only and excluded):
+Two different questions: what does it cost to _run_, and what does it cost to _build_. They are an
+order of magnitude apart, which is the entire reason to pull images rather than build them.
+
+**Running**, measured with the stack up under light load (mailpit is local-only and excluded):
 
 | Service          | Resident     |
 | ---------------- | ------------ |
@@ -95,53 +136,38 @@ sink is local-only and excluded):
 | tokenomics       | ~39 MiB      |
 | caddy            | ~30 MiB      |
 | redis            | ~7 MiB       |
-| **total**        | **~228 MiB** |
+| **total**        | **~218 MiB** |
 
-So the stack at rest is small. **What actually sizes the box is building the images on it**, not
-running them. Two SvelteKit/Vite builds plus their `npm ci` are far hungrier than the servers they
-produce, and a 1 GB VPS will OOM partway through a build with a confusing error.
+**Disk, pull-only** — everything the host needs, and no build cache:
 
-**Recommended: 4 GB RAM, 2 vCPU, 40 GB SSD.** Comfortable for a demo that builds on the box, with
-room for Postgres to grow.
+| Image                         | Size        |
+| ----------------------------- | ----------- |
+| mercury-financials (runner)   | 433 MB      |
+| mercury-financials-migrate    | 569 MB      |
+| mercury-tokenomics (runner)   | 471 MB      |
+| mercury-tokenomics-migrate    | 608 MB      |
+| postgres:16-alpine            | 294 MB      |
+| node:22-alpine (core-migrate) | 163 MB      |
+| caddy:2-alpine                | 63 MB       |
+| redis:7-alpine                | 41 MB       |
+| **total**                     | **~2.6 GB** |
 
-**Minimum that works: 2 GB RAM, 1–2 vCPU, 20 GB SSD** — but only if you do **not** build on the
-host. Build the images elsewhere (CI, or your machine), push them to a registry such as GHCR, and
-change the two `build:` blocks in `compose.yaml` to `image:` references. Then the VPS only ever
-pulls and runs, and 2 GB is generous.
+**Building on the host** adds, on top of all that: a full Node/Vite dev toolchain, every
+devDependency of both apps, and a build cache measured in gigabytes. It also needs the RAM to run two
+SvelteKit builds — a 1 GB box OOMs partway through with an unhelpful error, and that is the single
+most likely way a first deploy fails.
 
-Disk is dominated by images (~1.3 GB for the runtime set) and by Postgres. The one thing that grows
-without bound is financials' ingestion: it stores the **raw Blockfrost payload for every
-transaction**, so a wallet with a long history is the main disk variable. Budget accordingly if you
-sync a busy mainnet wallet; for a Catalyst demo wallet it is negligible.
+So:
 
-Bandwidth is trivial. Any VPS tier's allowance is orders of magnitude more than this needs.
+- **Pull prebuilt images (recommended): 2 GB RAM, 1–2 vCPU, 20 GB SSD.** Generous. The box is not a
+  build machine and never needs to be.
+- **Build on the host: 4 GB RAM, 2 vCPU, 40 GB SSD.** Only worth it before the apps publish to GHCR.
 
-## Check the images for secrets, once
+The one term that grows without bound is financials' ingestion: it stores the **raw Blockfrost payload
+for every transaction**, so a wallet with a long history is the main disk variable. Negligible for a
+Catalyst demo wallet; budget for it if you sync a busy mainnet one.
 
-Docker reads `.dockerignore` from the **context root**, not from next to the Dockerfile. While core
-was a `file:` link the apps had to build with the parent directory as context, so their
-`.dockerignore` files were silently never applied and `.env` — a real mainnet Blockfrost key and the
-Better Auth secret — was copied into the image. Worse, the image worked _because_ the secret file was
-in it, which masked a separate bug.
-
-Both apps now build single-context and honour `.dockerignore`, so this is fixed. But "should be fine"
-is not a check:
-
-```sh
-./audit-images.sh ../../mercury-financials/.env ../../mercury-tokenomics/.env
-```
-
-It fails loudly (exit 1) if an image contains a `.env` file or embeds the value of any sensitive key
-from those files, and it names the offending file. Run it before pushing an image anywhere.
-
-Two things it deliberately gets right, because both are easy to get wrong:
-
-- It only greps for values of **sensitive** keys (`*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `*KEY*`,
-  `*PROJECT_ID*`, ...). Grepping every long env value produces false positives that train you to
-  ignore the tool — financials' `REDIS_URL` is `redis://localhost:6379`, and Vite compiles that
-  harmless default straight into the bundle. That is not a leak.
-- It **counts hits** rather than piping `grep` into `head`. Piping makes the pipeline succeed whether
-  or not it matched, so a naive `&& echo LEAKED` fires either way.
+Bandwidth is trivial either way.
 
 ## Going to production
 
@@ -176,11 +202,19 @@ the ACME HTTP challenge.
 sudo ufw allow 22,80,443/tcp && sudo ufw enable
 ```
 
-### 3. Get the code onto it
+### 3. Get the compose file onto it
 
-Both apps install core from npm, so each builds from its own directory alone. Nothing needs a
-sibling checkout any more, but the compose file lives in mercury-core and its default build contexts
-are relative, so the simplest layout is still to clone all three side by side:
+Once the apps publish to GHCR, the host needs **this repo only** — not the app source:
+
+```sh
+git clone https://github.com/cardano-mercury/mercury-core.git
+cd mercury-core/deploy
+```
+
+The app images are pulled; nothing is built on the box.
+
+Until they publish, you also need the two app repos checked out as siblings of `mercury-core`, and
+every command below needs `-f compose.build.yaml` added so compose builds them:
 
 ```sh
 mkdir -p ~/cardano-mercury && cd ~/cardano-mercury
@@ -189,9 +223,8 @@ git clone https://github.com/cardano-mercury/mercury-financials.git
 git clone https://github.com/cardano-mercury/mercury-tokenomics.git
 ```
 
-`FINANCIALS_CONTEXT` and `TOKENOMICS_CONTEXT` in `.env` point at those directories. Change them if
-you lay the repos out differently, or switch the `build:` blocks to `image:` and pull prebuilt
-images instead.
+`FINANCIALS_CONTEXT` and `TOKENOMICS_CONTEXT` in `.env` point at those directories. Building on the
+host is the 4 GB configuration; pulling is the 2 GB one.
 
 ### 4. Configure
 
@@ -212,8 +245,11 @@ Fill in `.env`. The two that break things quietly:
 ### 5. Bring it up
 
 ```sh
-docker compose --env-file .env up -d --build
+docker compose --env-file .env up -d --pull always
 ```
+
+(Add `-f compose.build.yaml` and `--build` instead of `--pull always` if you are building on the
+host because the images are not published yet.)
 
 Certificates are issued on the first request to each hostname. Watch it happen:
 
