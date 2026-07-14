@@ -1,0 +1,39 @@
+name: Feature request
+description: Something the shared library should do and does not.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what is in the way? Describe the problem, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shared
+    attributes:
+      label: Does this belong in core, or in an app?
+      description: |
+        Core holds what is genuinely shared: auth conventions, the user/session schema, Cardano and
+        money utilities. App-specific domain models (financials' reports, tokenomics' buckets) stay in
+        the apps. If only one app would ever use it, it probably belongs there.
+      options:
+        - Both Mercury apps need it
+        - One app needs it now, the other plausibly will
+        - Not sure, happy to be told
+    validations:
+      required: true
+
+  - type: textarea
+    id: breaking
+    attributes:
+      label: Would this break existing consumers?
+      description: Both apps install this package and share one Postgres database. Changes to the db/auth/cardano/money surface, or to a peer range, are breaking.
