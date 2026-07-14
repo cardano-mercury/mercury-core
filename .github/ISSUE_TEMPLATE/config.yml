@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/cardano-mercury/mercury-core/security/advisories/new
+    about: Report privately. Do not open a public issue, and do not open a PR that fixes it — the diff is the disclosure.
+  - name: Something wrong in a Mercury app, not the library
+    url: https://github.com/cardano-mercury
+    about: Report it against mercury-financials or mercury-tokenomics instead.

@@ -4,9 +4,9 @@ name: CI
 # the test suite at 100% coverage, and a clean build of the published artifact.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
   push:
-    branches: [main]
+    branches: [main, development]
 
 # A newer commit on a branch supersedes in-flight runs for that branch/PR.
 concurrency:
