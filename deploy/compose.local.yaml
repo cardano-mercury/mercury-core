@@ -1,0 +1,43 @@
+# Local dry run overlay. Use with the base file:
+#
+#   docker compose -f compose.yaml -f compose.local.yaml --env-file .env.local up -d --build
+#
+# Everything that differs from production, and nothing else. Same images, same migration order, same
+# Caddy, same cross-subdomain cookie: the point is to rehearse the real thing, not a simplified
+# version of it.
+#
+# What this DOES exercise: the build of both app images, the migration ordering (core's shared auth
+# tables before either app's), Caddy's routing, and single sign-on across two subdomains.
+#
+# What it CANNOT exercise: ACME certificate issuance. That needs a public domain and ports 80/443
+# reachable from the internet, by definition. Caddy uses its own CA here instead, so browsers will
+# warn once per hostname until you trust it (README explains). Everything else is identical.
+
+services:
+  caddy:
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # A throwaway SMTP sink, so tokenomics' magic-link sign-in actually delivers somewhere you can
+  # read. Without SMTP_URL its email transport is a console.log stub and magic links go nowhere.
+  # Web UI on http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - '8025:8025'
+
+  tokenomics:
+    environment:
+      SMTP_URL: smtp://mailpit:1025
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  # Handy for poking at the database during a dry run. Never do this in production: the base file
+  # deliberately does not publish Postgres to the host.
+  db:
+    ports:
+      - '55433:5432'
