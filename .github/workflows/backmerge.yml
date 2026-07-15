@@ -1,0 +1,81 @@
+name: Back-merge
+
+# After a release lands on main, bring main back down to development.
+#
+# Without this the two branches drift, silently and dangerously. The release branch is cut FROM
+# development, so `changeset version` consumes the changesets and writes the bump on THAT branch.
+# main gets the cleaned-up result when the release pull request merges. development never does: it is
+# left holding the very changesets the release already shipped.
+#
+# The next release then assembles them a second time, producing duplicate changelog entries and a
+# version bump computed from changes that are already out. Core drifted exactly this way after 0.2.2
+# (development sat at 0.2.1 still carrying all seven consumed changesets) and it was caught by
+# accident, not by a check.
+#
+# The back-merge arrives as an ordinary pull request so it runs the same CI as anything else. Nothing
+# pushes to development.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: backmerge
+  cancel-in-progress: false
+
+jobs:
+  backmerge:
+    name: Open the back-merge PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        if: vars.RELEASE_APP_ID != ''
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Is development already up to date?
+        id: check
+        run: |
+          set -euo pipefail
+          behind=$(git rev-list --count origin/development..origin/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if [ "$behind" -eq 0 ]; then
+            echo "::notice::development already contains main. Nothing to back-merge."
+          else
+            echo "development is $behind commit(s) behind main."
+          fi
+
+      - name: Open or update the back-merge pull request
+        if: steps.check.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          branch="backmerge/main-to-development"
+          git checkout -B "$branch" origin/main
+          git push --force origin "$branch"
+
+          existing=$(gh pr list --base development --head "$branch" --json number -q '.[0].number' || true)
+          body=$(printf 'Brings `main` back down to `development` after a release.\n\nThe release branch is cut from `development`, so `changeset version` consumes the changesets and writes the version bump on that branch. `main` gets the cleaned result when the release merges; `development` does not, and is left holding the changesets the release already shipped. Without this the next release assembles them a second time.\n\nOpened automatically. If it conflicts, resolve in favour of `main` for `package.json`, `CHANGELOG.md` and `.changeset/`.\n')
+
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "Back-merge main into development" --body "$body"
+          else
+            gh pr create --base development --head "$branch" \
+              --title "Back-merge main into development" --body "$body"
+          fi

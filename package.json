@@ -1,6 +1,6 @@
 {
 	"name": "@cardano-mercury/core",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "Shared database schema, authentication, and Cardano utilities for the Mercury apps.",
 	"keywords": [
 		"cardano",
@@ -98,5 +98,10 @@
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.62.1",
 		"vitest": "^4.1.10"
+	},
+	"overrides": {
+		"undici": "^6.27.0",
+		"ip-address": "^10.1.1",
+		"esbuild": "^0.25.0"
 	}
 }

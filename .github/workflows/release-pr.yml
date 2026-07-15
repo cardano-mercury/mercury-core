@@ -57,7 +57,7 @@ jobs:
       # Mint a short-lived installation token for the release bot. Skipped when the App is not
       # configured, so the workflow degrades rather than breaking. The App ID is a variable, not a
       # secret, precisely so it can be tested in this `if`.
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         if: vars.RELEASE_APP_ID != ''
         with:
